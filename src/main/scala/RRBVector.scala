@@ -7,12 +7,7 @@ import spire.ClassTag
 import scala.annotation.tailrec
 import scala.compat.Platform
 import scala.annotation.unchecked.uncheckedVariance
-import scala.collection.generic.{
-CanBuildFrom,
-GenericCompanion,
-GenericTraversableTemplate,
-IndexedSeqFactory
-}
+import scala.collection.generic.{CanBuildFrom, GenericCompanion, GenericTraversableTemplate, IndexedSeqFactory}
 import scala.collection.{AbstractIterator, GenTraversableOnce, mutable}
 import scala.{specialized => sp}
 
@@ -23,19 +18,27 @@ object RRBVector extends scala.collection.generic.IndexedSeqFactory[RRBVector] {
   def newBuilder[A]: mutable.Builder[A, RRBVector[A]] =
     new RRBVectorBuilder[A]()
 
+/*
   implicit def canBuildFrom[A]
   : scala.collection.generic.CanBuildFrom[Coll, A, RRBVector[A]] =
     ReusableCBF.asInstanceOf[GenericCanBuildFrom[A]]
+*/
+
+  implicit def canBuildFrom[A]: CanBuildFrom[RRBVector[_], A, RRBVector[A]] =
+    new CanBuildFrom[RRBVector[_], A, RRBVector[A]] {
+      def apply = new RRBVectorBuilder[A]
+
+      override def apply(from: RRBVector[_]): A = ???
+    }
 
   lazy private val EMPTY_VECTOR = new RRBVector[Nothing](0)
 
-  override def empty[@sp A]: RRBVector[A] = EMPTY_VECTOR
+  override def empty[A]: RRBVector[A] = EMPTY_VECTOR
 
-  final lazy private[immutable] val emptyTransientBlock =
-    new Array[AnyRef](2)
+  final lazy private[immutable] val emptyTransientBlock = new Array[AnyRef](2)
 }
 
-final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
+final class RRBVector[+A](override private[immutable] val endIndex: Int)
   extends scala.collection.AbstractSeq[A]
     with scala.collection.immutable.IndexedSeq[A]
     with scala.collection.generic.GenericTraversableTemplate[A, RRBVector]
@@ -45,8 +48,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
 
   private[immutable] var transient: Boolean = false
 
-  override def companion: scala.collection.generic.GenericCompanion[RRBVector] =
-    RRBVector
+  override def companion: scala.collection.generic.GenericCompanion[RRBVector] = RRBVector
 
   def length: Int = endIndex
 
@@ -85,7 +87,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
       throw new IndexOutOfBoundsException(index.toString)
   }
 
-  override def :+[@sp B >: A, That](elem: B)(
+  override def :+[B >: A, That](elem: B)(
     implicit bf: CanBuildFrom[RRBVector[A], B, That]): That =
     if (bf.eq(IndexedSeq.ReusableCBF)) {
       val _endIndex = this.endIndex
@@ -100,7 +102,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
     } else
       super.:+(elem)(bf)
 
-  override def +:[@sp B >: A, That](elem: B)(
+  override def +:[B >: A, That](elem: B)(
     implicit bf: CanBuildFrom[RRBVector[A], B, That]): That =
     if (bf.eq(IndexedSeq.ReusableCBF)) {
       val _endIndex = this.endIndex
@@ -200,7 +202,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
     else
       throw new UnsupportedOperationException("empty.init")
 
-  private[immutable] def append[@sp B >: A](elem: B, _endIndex: Int): scala.Unit = {
+  private[immutable] def append[ B >: A](elem: B, _endIndex: Int): scala.Unit = {
     if (focusStart.+(focus).^(_endIndex.-(1)).>=(32))
       normalizeAndFocusOn(_endIndex.-(1))
 
@@ -211,7 +213,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
       appendBackNewBlock(elem, elemIndexInBlock)
   }
 
-  private def appendOnCurrentBlock[@sp B >: A](elem: B,
+  private def appendOnCurrentBlock[ B >: A](elem: B,
                                       elemIndexInBlock: Int): scala.Unit = {
     focusEnd = endIndex
     val d0 = new Node(elemIndexInBlock.+(1))
@@ -221,7 +223,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
     makeTransientIfNeeded()
   }
 
-  private def appendBackNewBlock[@sp B >: A](elem: B,
+  private def appendBackNewBlock[ B >: A](elem: B,
                                     elemIndexInBlock: Int): scala.Unit = {
     val oldDepth = depth
     val newRelaxedIndex = endIndex.-(1).-(focusStart).+(focusRelax)
@@ -297,7 +299,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
     display0.update(elemIndexInBlock, elem.asInstanceOf[Node])
     transient = true
   }
-  private[immutable] def prepend[@sp B >: A](elem: B): scala.Unit = {
+  private[immutable] def prepend[ B >: A](elem: B): scala.Unit = {
 
     if (focusStart.!=(0).||(focus.&(-32).!=(0)))
       normalizeAndFocusOn(0)
@@ -309,7 +311,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
       prependFrontNewBlock(elem)
   }
 
-  private def prependOnCurrentBlock[@sp B >: A](elem: B,
+  private def prependOnCurrentBlock[ B >: A](elem: B,
                                                 oldD0: Array[B]): scala.Unit = {
     val newLen = oldD0.length + 1
     focusEnd = newLen
@@ -319,7 +321,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
     display0 = newD0.asInstanceOf[Node]
     makeTransientIfNeeded()
   }
-  private def prependFrontNewBlock[@sp B >: A](elem: B): scala.Unit = {
+  private def prependFrontNewBlock[ B >: A](elem: B): scala.Unit = {
     var currentDepth = focusDepth
     if (currentDepth.==(1))
       currentDepth.+=(1)
@@ -399,7 +401,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
     transient = true
   }
 
-  private def createSingletonVector[@sp B >: A](elem: B): RRBVector[B] = {
+  private def createSingletonVector[ B >: A](elem: B): RRBVector[B] = {
     val resultVector = new RRBVector[B](1)
     resultVector.initSingleton(elem)
     resultVector
@@ -420,7 +422,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
       transient = true
     }
   }
-  private[immutable] def concatenate[@sp B >: A](currentSize: Int,
+  private[immutable] def concatenate[ B >: A](currentSize: Int,
                                                  that: RRBVector[B]): scala.Unit = {
     if (this.transient) {
       this.normalize(this.depth)
@@ -1081,7 +1083,7 @@ final class RRBVector[@sp +A](override private[immutable] val endIndex: Int)
   }
 }
 
-final class RRBVectorBuilder[@sp A]
+final class RRBVectorBuilder[ A]
   extends mutable.Builder[A, RRBVector[A]]
     with RRBVectorPointer[A @uncheckedVariance] {
 
@@ -1180,7 +1182,7 @@ final class RRBVectorBuilder[@sp A]
   }
 }
 
-class RRBVectorIterator[@sp +A](startIndex: Int,
+class RRBVectorIterator[ +A](startIndex: Int,
                             override private[immutable] val endIndex: Int)
   extends AbstractIterator[A]
     with Iterator[A]
@@ -1251,7 +1253,7 @@ class RRBVectorIterator[@sp +A](startIndex: Int,
     math.max(endIndex.-(blockIndex.+(lo)), 0)
 }
 
-class RRBVectorReverseIterator[@sp +A](startIndex: Int,
+class RRBVectorReverseIterator[ +A](startIndex: Int,
                                        final override private[immutable] val endIndex: Int)
   extends AbstractIterator[A]
     with Iterator[A]
@@ -1262,7 +1264,7 @@ class RRBVectorReverseIterator[@sp +A](startIndex: Int,
   private var endLo: Int = _
   private var _hasNext: Boolean = startIndex < endIndex
 
-  final private[collection] def initIteratorFrom[@sp B >: A](that: RRBVectorPointer[B]): Unit = {
+  final private[collection] def initIteratorFrom[ B >: A](that: RRBVectorPointer[B]): Unit = {
     initWithFocusFrom(that)
     _hasNext = startIndex < endIndex
     if (_hasNext) {
@@ -1317,10 +1319,10 @@ class RRBVectorReverseIterator[@sp +A](startIndex: Int,
 
 }
 
-private[immutable] trait RRBVectorPointer[@sp +A] {
+private[immutable] trait RRBVectorPointer[ +A] {
 
   type Node = Array[AnyRef]
-  //type Leaf[@sp B >: A] = Array[B]
+  //type Leaf[ B >: A] = Array[B]
   val Node: Array.type = Array
 
   /*Displays*/
@@ -1343,7 +1345,7 @@ private[immutable] trait RRBVectorPointer[@sp +A] {
 
   private[immutable] def endIndex: Int
 
-  final private[immutable] def initWithFocusFrom[@sp B >: A](that: RRBVectorPointer[B]): scala.Unit = {
+  final private[immutable] def initWithFocusFrom[ B >: A](that: RRBVectorPointer[B]): scala.Unit = {
     initFocus(that.focus,
       that.focusStart,
       that.focusEnd,
@@ -1364,7 +1366,7 @@ private[immutable] trait RRBVectorPointer[@sp +A] {
     this.focusRelax = focusRelax
   }
 
-  final private[immutable] def initFrom[@sp B >: A](that: RRBVectorPointer[B]): scala.Unit = {
+  final private[immutable] def initFrom[ B >: A](that: RRBVectorPointer[B]): scala.Unit = {
 
     depth = that.depth
     that.depth match {
@@ -1433,7 +1435,7 @@ private[immutable] trait RRBVectorPointer[@sp +A] {
   }
 
 
-  final private[immutable] def initSingleton[@sp B >: A](elem: B): scala.Unit = {
+  final private[immutable] def initSingleton[ B >: A](elem: B): scala.Unit = {
     initFocus(0, 0, 1, 1, 0)
     val d0 = new Array(1).asInstanceOf[Node]
     d0.update(0, elem.asInstanceOf[Node])
