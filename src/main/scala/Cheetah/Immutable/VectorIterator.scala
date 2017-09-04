@@ -1,5 +1,4 @@
-package Cheetah
-package Immutable
+package Cheetah.Immutable
 
 import scala.annotation.unchecked.uncheckedVariance
 import scala.{specialized => sp}

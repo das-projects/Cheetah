@@ -1,5 +1,4 @@
-package Cheetah
-package Immutable
+package Cheetah.Immutable
 
 import scala.{specialized => sp}
 
@@ -619,7 +618,7 @@ private [Immutable] trait VectorPointer[@sp A]{
         display1.update(0, display0)
         depth += 1
       }
-      display0 = new Node(32).asInstanceOf[Node]
+      display0 = new Leaf(32)
       display1.update(index >> 5 & 31, display0)
     } else if (xor < (1 << 15)) {
       if (depth == 2) {
@@ -627,7 +626,7 @@ private [Immutable] trait VectorPointer[@sp A]{
         display2.update(0, display1)
         depth += 1
       }
-      display0 = new Node(32).asInstanceOf[Node]
+      display0 = new Leaf(32)
       display1 = new Node(33)
       display1.update(index >> 5 & 31, display0)
       display2.update(index >> 10 & 31, display1)
@@ -637,7 +636,7 @@ private [Immutable] trait VectorPointer[@sp A]{
         display3.update(0, display2)
         depth += 1
       }
-      display0 = new Node(32).asInstanceOf[Node]
+      display0 = new Leaf(32)
       display1 = new Node(33)
       display2 = new Node(33)
       display1.update(index >> 5 & 31, display0)
@@ -649,7 +648,7 @@ private [Immutable] trait VectorPointer[@sp A]{
         display4.update(0, display3)
         depth += 1
       }
-      display0 = new Node(32).asInstanceOf[Node]
+      display0 = new Leaf(32)
       display1 = new Node(33)
       display2 = new Node(33)
       display3 = new Node(33)
@@ -663,7 +662,7 @@ private [Immutable] trait VectorPointer[@sp A]{
         display5.update(0, display4)
         depth += 1
       }
-      display0 = new Node(32).asInstanceOf[Node]
+      display0 = new Leaf(32)
       display1 = new Node(33)
       display2 = new Node(33)
       display3 = new Node(33)
@@ -679,7 +678,7 @@ private [Immutable] trait VectorPointer[@sp A]{
         display6.update(0, display5)
         depth += 1
       }
-      display0 = new Node(32).asInstanceOf[Node]
+      display0 = new Leaf(32)
       display1 = new Node(33)
       display2 = new Node(33)
       display3 = new Node(33)
@@ -1145,17 +1144,24 @@ private [Immutable] trait VectorPointer[@sp A]{
         this.depth = 7
   }
 
-  final private[Immutable] def copyOf[AnyRef](array: Node) = {
+  final private[Immutable] def copyOf(array: Node) = {
     val len = array.length
     val newArray = new Node(len)
     System.arraycopy(array, 0, newArray, 0, len)
     newArray
   }
 
-  final private[Immutable] def copyOf[AnyRef](array: Node,
-                                              numElements: Int,
-                                              newSize: Int): Node = {
+  final private[Immutable] def copyOf(array: Node,
+                                      numElements: Int,
+                                      newSize: Int): Node = {
     val newArray = new Node(newSize)
+    System.arraycopy(array, 0, newArray, 0, numElements)
+    newArray
+  }
+  final private[Immutable] def copyOf(array: Leaf,
+                                      numElements: Int,
+                                      newSize: Int): Leaf = {
+    val newArray = new Leaf(newSize)
     System.arraycopy(array, 0, newArray, 0, numElements)
     newArray
   }

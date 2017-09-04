@@ -1,22 +1,22 @@
-package Cheetah
-package collection
-package immutable
+package Cheetah.Immutable
 
 import scala.collection.generic.{CanCombineFrom, GenericParTemplate, ParFactory}
-import scala.collection.parallel.{Combiner, ParSeqLike, SeqSplitter}
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.parallel.{Combiner, ParSeqLike, SeqSplitter}
 import scala.collection.parallel.immutable.ParSeq
+import scala.{specialized => sp}
+import scala.{Vector => Vec}
 
-class ParRRBVector[+A](vector: RRBVector[A])
-    extends ParSeq[A]
-    with GenericParTemplate[A, ParRRBVector]
-    with ParSeqLike[A, ParRRBVector[A], RRBVector[A]]
+class ParVector[@sp +A](vector: Vector[A])
+  extends ParSeq[A]
+    with GenericParTemplate[A, ParVector]
+    with ParSeqLike[A, ParVector[A], Vector[A]]
     with Serializable {
 
-  override def companion = ParRRBVector
+  override def companion = ParVector
 
   def this() = {
-    this(RRBVector.empty[A])
+    this(Vector.empty[A])
     ()
   }
 
@@ -25,26 +25,26 @@ class ParRRBVector[+A](vector: RRBVector[A])
   def length = vector.length
 
   def splitter: SeqSplitter[A] = {
-    val pit = new ParRRBVectorIterator(0, vector.length)
+    val pit = new ParVectorIterator(0, vector.length)
     pit.initIteratorFrom(vector)
     pit
   }
 
-  override def seq: RRBVector[A] = vector
+  override def seq: Vector[A] = vector
 
   override def toVector: Vector[A] = vector.toVector
 
-  class ParRRBVectorIterator(_start: Int, _end: Int)
-      extends RRBVectorIterator[A](_start, _end)
+  class ParVectorIterator(_start: Int, _end: Int)
+    extends VectorIterator[A](_start, _end)
       with SeqSplitter[A] {
     final override def remaining: Int = super.remaining
     def dup: SeqSplitter[A] = {
       val pit =
-        new ParRRBVectorIterator(_end.-(remaining), _end)
+        new ParVectorIterator(_end.-(remaining), _end)
       pit.initIteratorFrom(this)
       pit
     }
-    def split: Seq[ParRRBVectorIterator] = {
+    def split: Seq[ParVectorIterator] = {
       val rem = remaining
       if (rem.>=(2)) {
         val _half = rem./(2)
@@ -74,11 +74,11 @@ class ParRRBVector[+A](vector: RRBVector[A])
       } else
         Seq(this)
     }
-    def psplit(sizes: Int*): Seq[ParRRBVectorIterator] = {
-      val splitted = new ArrayBuffer[ParRRBVectorIterator]()
+    def psplit(sizes: Int*): Seq[ParVectorIterator] = {
+      val splitted = new ArrayBuffer[ParVectorIterator]()
       var currentPos = _end.-(remaining)
       sizes.foreach(((sz) => {
-        val pit = new ParRRBVectorIterator(currentPos, currentPos.+(sz))
+        val pit = new ParVectorIterator(currentPos, currentPos.+(sz))
         pit.initIteratorFrom(this)
         splitted.+=(pit)
         currentPos.+=(sz)
@@ -88,22 +88,22 @@ class ParRRBVector[+A](vector: RRBVector[A])
   }
 }
 
-object ParRRBVector extends ParFactory[ParRRBVector] {
-  implicit def canBuildFrom[A]: CanCombineFrom[Coll, A, ParRRBVector[A]] =
+object ParVector extends ParFactory[ParVector] {
+  implicit def canBuildFrom[A]: CanCombineFrom[Coll, A, ParVector[A]] =
     new GenericCanCombineFrom[A]()
-  def newBuilder[A]: Combiner[A, ParRRBVector[A]] =
+  def newBuilder[A]: Combiner[A, ParVector[A]] =
     newCombiner[A]
-  def newCombiner[A]: Combiner[A, ParRRBVector[A]] =
-    new ParRRBVectorCombinator[A]()
+  def newCombiner[A]: Combiner[A, ParVector[A]] =
+    new ParVectorCombinator[A]()
 }
 
-private[immutable] class ParRRBVectorCombinator[A]
-    extends Combiner[A, ParRRBVector[A]] {
-  val builder: RRBVectorBuilder[A] =
-    new RRBVectorBuilder[A]()
+private[Immutable] class ParVectorCombinator[A]
+  extends Combiner[A, ParVector[A]] {
+  val builder: VectorBuilder[A] =
+    new VectorBuilder[A]()
   override def size = builder.endIndex
   override def result() =
-    new ParRRBVector[A](builder.result())
+    new ParVector[A](builder.result())
   override def clear() = builder.clear()
   override def +=(elem: A) = {
     builder.+=(elem)
@@ -113,16 +113,16 @@ private[immutable] class ParRRBVectorCombinator[A]
     builder.++=(xs)
     this
   }
-  def combine[B <: A, NewTo >: ParRRBVector[A]](
-      other: Combiner[B, NewTo]) =
+  def combine[B <: A, NewTo >: ParVector[A]](
+                                                 other: Combiner[B, NewTo]) =
     if (other.eq(this))
       this
     else {
-      val newCombiner = new ParRRBVectorCombinator[A]()
+      val newCombiner = new ParVectorCombinator[A]()
       newCombiner.++=(this.builder.result())
       newCombiner.++=(
         other
-          .asInstanceOf[ParRRBVectorCombinator[A]]
+          .asInstanceOf[ParVectorCombinator[A]]
           .builder
           .result())
       newCombiner

@@ -1,5 +1,4 @@
-package Cheetah
-package Immutable
+package Cheetah.Immutable
 
 import scala.annotation.unchecked.uncheckedVariance
 import scala.{specialized => sp}
@@ -9,8 +8,11 @@ class VectorReverseIterator[@sp +A](startIndex: Int,
   extends Iterator[A]
     with VectorPointer[A@uncheckedVariance] {
 
-  private var lastIndexOfBlock: Int = _
+  /*Index in the vector of the first element of the current block, i.e. current display0 */
+  private var blockIndex: Int = _
+  /*Index in the current block, i.e. current display0 */
   private var lo: Int = _
+  /*End index (or length) of the current block, i.e. current display0 */
   private var endLo: Int = _
   private var _hasNext: Boolean = startIndex < endIndex
 
@@ -47,7 +49,6 @@ class VectorReverseIterator[@sp +A](startIndex: Int,
     } else
       throw new NoSuchElementException("reached iterator end")
   }
-
 
   final private[Immutable] def gotoPrevBlock(): Unit = {
     val newBlockIndex = lastIndexOfBlock - 32
