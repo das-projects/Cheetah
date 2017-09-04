@@ -115,7 +115,6 @@ private [Immutable] trait VectorPointer[@sp A]{
     focusOn(0)
   }
 
-
   final private[Immutable] def initSingleton[@sp B >: A](elem: B): scala.Unit = {
     initFocus(0, 0, 1, 1, 0)
     val d0 = new Array(1).asInstanceOf[Node]
@@ -177,7 +176,7 @@ private [Immutable] trait VectorPointer[@sp A]{
     } while (sizes != null)
 
     currentDepth match {
-      case 1 => getElem0(display, indexInSubTree)
+      case 1 => getElem0(display.asInstanceOf[Leaf], indexInSubTree)
       case 2 => getElem1(display, indexInSubTree)
       case 3 => getElem2(display, indexInSubTree)
       case 4 => getElem3(display, indexInSubTree)

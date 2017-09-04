@@ -1,9 +1,9 @@
 package Cheetah.Immutable
 
-import com.google.protobuf.`type`.Field.Cardinality.CARDINALITY_OPTIONAL
+import Cheetah.Immutable.Vector.{Coll, ReusableCBF}
 
 import scala.annotation.unchecked.uncheckedVariance
-import scala.collection.generic.{CanBuildFrom, FilterMonadic, GenericCompanion}
+import scala.collection.generic.{CanBuildFrom, FilterMonadic, GenericCompanion, IndexedSeqFactory}
 import scala.collection.mutable.Builder
 import scala.collection.parallel.{Combiner, ParIterable}
 import scala.collection.{GenIterable, GenTraversableOnce, IndexedSeqLike, IterableLike, IterableView, Iterator, Traversable, TraversableLike, breakOut, immutable, mutable}
@@ -15,7 +15,6 @@ object Vector extends scala.collection.generic.IndexedSeqFactory[Vector] {
 
   def newBuilder[A]: mutable.Builder[A, Vector[A]] =
     new VectorBuilder[A]()
-
 
   implicit def canBuildFrom[A]
     : scala.collection.generic.CanBuildFrom[Coll, A, Vector[A]] =
@@ -33,11 +32,26 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   extends Traversable[A]
     with TraversableLike[A, Vector[A]]
     with Iterable[A]
+    with IndexedSeqFactory[Vector]
     with IterableLike[A, Vector[A]]
+    with VectorBuilder[A]
     with VectorPointer[A @uncheckedVariance]
     with Serializable { self =>
 
   private[Immutable] var transient: Boolean = false
+
+  def newBuilder[@sp B >: A]: mutable.Builder[B, Vector[B]] =
+    new VectorBuilder[B]()
+
+  implicit def canBuildFrom[@sp B >: A]
+  : scala.collection.generic.CanBuildFrom[Coll, B, Vector[B]] =
+    ReusableCBF.asInstanceOf[GenericCanBuildFrom[B]]
+
+  lazy private val EMPTY_VECTOR = new Vector[Nothing](0)
+
+  override def empty[@sp B >: A]: Vector[B] = EMPTY_VECTOR
+
+  final lazy private[Immutable] val emptyTransientBlock = new Node(2)
 
   /*Methods from TraversableLike */
 
@@ -83,11 +97,6 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   override def ++[@sp B >: A, @sp That](that: GenTraversableOnce[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    def builder: mutable.Builder[B, That] = { // extracted to keep method size under 35 bytes, so that it can be JIT-inlined
-      val b = bf(repr)
-      if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.seq.size)
-      b
-    }
 
     if (bf.eq(IndexedSeq.ReusableCBF))
       if (that.isEmpty)
@@ -104,31 +113,34 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
             newVec.asInstanceOf[That]
           }
         case _ =>
-          val b = builder
+          val b = newBuilder[B]  // TODO Make sure this is working at it is supposed to
+          if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
           b ++= thisCollection
           b ++= that.seq
-          b.result
+          b.result.asInstanceOf[That]
       }
     else {
-      val b = builder
+      val b = newBuilder[B]
+      if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
       b ++= thisCollection
       b ++= that.seq
-      b.result
+      b.result.asInstanceOf[That]
     }
   }
 
   override def ++:[@sp B >: A, @sp That](that: TraversableOnce[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    val b = bf(repr)
+    val b = newBuilder[B]
     if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
     b ++= that
     b ++= thisCollection
-    b.result
+    b.result.asInstanceOf[That]
   }
 
-  override def ++:[@sp B >: A, @sp That](that: Traversable[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = (that ++ seq)(breakOut)
+  override def ++:[@sp B >: A, @sp That](that: Traversable[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = (that ++ this)(breakOut)
 
+  // Append
   def :+[@sp B >: A, That](elem: B)(
-    implicit bf: CanBuildFrom[Vector[A], B, That]): That =
+    implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
     if (bf.eq(IndexedSeq.ReusableCBF)) {
       val _endIndex = this.endIndex
       if (_endIndex.!=(0)) {
@@ -145,9 +157,11 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       b += elem
       b.result()
     }
+  }
 
+  // Prepend
   def +:[@sp B >: A, That](elem: B)(
-    implicit bf: CanBuildFrom[Vector[A], B, That]): That =
+    implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
     if (bf.eq(IndexedSeq.ReusableCBF)) {
       val _endIndex = this.endIndex
       if (_endIndex != 0) {
@@ -164,18 +178,18 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       b ++= thisCollection
       b.result()
     }
+  }
+
+  /*
+  * Map Like Operations
+  * */
 
   def foreach[@sp B](f: (A) => B): Unit // TODO Implement in the object and optimize using C++/CUDA via JavaCPP
 
   override def map[@sp B >: A, @sp That](f: (A) => B)(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    def builder = { // extracted to keep method size under 35 bytes, so that it can be JIT-inlined
-      val b = bf(repr)
-      b.sizeHint(this)
-      b
-    }
-    val b = builder
-    for (x <- this) b += f(x) // Sugared form of foreach
-    b.result
+    val b = newBuilder[B]
+    for(x <- this) b += f(x)
+    b.result.asInstanceOf[That]
   }
 
   override def flatMap[@sp B >: A, @sp That](f: (A) => GenTraversableOnce[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
@@ -200,15 +214,15 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   override def collect[@sp B >: A, @sp That](pf: PartialFunction[A, B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    val b = bf(repr)
+    val b = newBuilder[B]
     foreach(pf.runWith(b += _)) // Understand what a partial function
-    b.result
+    b.result.asInstanceOf[That]
   }
 
   override def partition(p: (A) => Boolean): (Vector[A], Vector[A]) = {
-    val l, r = newBuilder
+    val l, r = newBuilder[A]
     for (x <- this) (if (p(x)) l else r) += x // Sugared form of foreach
-    (l.result.asInstanceOf[Vector[A]], r.result.asInstanceOf[Vector[A]])
+    (l.result, r.result)
   }
 
   override def groupBy[@sp K](f: (A) => K): Map[K, Vector[A]] =  {
@@ -224,12 +238,6 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
 
     b.result
   }
-
-  private override def getOrElseUpdate[@sp K](key: K, op: => VectorBuilder[A]): VectorBuilder[A] =
-    get(key) match {
-      case Some(v) => v
-      case None => val d = op; this(key) = d; d
-    }
 
   override def scan[@sp B >: A, That](z: B)(op: (B, B) => B)(implicit cbf: CanBuildFrom[Vector[A], B, That]): That = scanLeft(z)(op)
 
@@ -702,20 +710,20 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
 
           var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
           concat = rebalanced(this.display1, concat, that.display1, 2)
-          if (concat.length.==(2))
+          if (concat.length == 2)
             initFromRoot(concat(0).asInstanceOf[Node], 2)
           else
             initFromRoot(withComputedSizes(concat, 3), 3)
         }
 
       case 3 =>
-        var d0: Node = null
+        var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
         if (that.focus.&(-32).==(0)) {
           d2 = that.display2
           d1 = that.display1
-          d0 = that.display0.asInstanceOf[Node]
+          d0 = that.display0.asInstanceOf[Leaf]
         } else {
           if (that.display2.!=(null))
             d2 = that.display2
@@ -725,9 +733,9 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           else
             d1 = d2(0).asInstanceOf[Node]
           if (d1.==(null))
-            d0 = that.display0.asInstanceOf[Node]
+            d0 = that.display0.asInstanceOf[Leaf]
           else
-            d0 = d1(0).asInstanceOf[Node]
+            d0 = d1(0).asInstanceOf[Leaf]
         }
         var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
         concat = rebalanced(this.display1, concat, d1, 2)
@@ -737,7 +745,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         else
           initFromRoot(withComputedSizes(concat, 4), 4)
       case 4 =>
-        var d0: Node = null
+        var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
         var d3: Node = null
@@ -745,7 +753,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           d3 = that.display3
           d2 = that.display2
           d1 = that.display1
-          d0 = that.display0.asInstanceOf[Node]
+          d0 = that.display0.asInstanceOf[Leaf]
         } else {
           if (that.display3.!=(null))
             d3 = that.display3
@@ -759,20 +767,20 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           else
             d1 = d2(0).asInstanceOf[Node]
           if (d1 == null)
-            d0 = that.display0.asInstanceOf[Node]
+            d0 = that.display0.asInstanceOf[Leaf]
           else
-            d0 = d1(0).asInstanceOf[Node]
+            d0 = d1(0).asInstanceOf[Leaf]
         }
         var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
         concat = rebalanced(this.display3, concat, that.display3, 4)
-        if (concat.length.==(2))
+        if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 4)
         else
           initFromRoot(withComputedSizes(concat, 5), 5)
       case 5 =>
-        var d0: Node = null
+        var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
         var d3: Node = null
@@ -782,7 +790,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           d3 = that.display3
           d2 = that.display2
           d1 = that.display1
-          d0 = that.display0.asInstanceOf[Node]
+          d0 = that.display0.asInstanceOf[Leaf]
         } else {
           if (that.display4.!=(null))
             d4 = that.display4
@@ -801,21 +809,21 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           else
             d1 = d2(0).asInstanceOf[Node]
           if (d1.==(null))
-            d0 = that.display0.asInstanceOf[Node]
+            d0 = that.display0.asInstanceOf[Leaf]
           else
-            d0 = d1(0).asInstanceOf[Node]
+            d0 = d1(0).asInstanceOf[Leaf]
         }
         var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
         concat = rebalanced(this.display3, concat, d3, 4)
         concat = rebalanced(this.display4, concat, that.display4, 5)
-        if (concat.length.==(2))
+        if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 5)
         else
           initFromRoot(withComputedSizes(concat, 6), 6)
       case 6 =>
-        var d0: Node = null
+        var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
         var d3: Node = null
@@ -827,7 +835,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           d3 = that.display3
           d2 = that.display2
           d1 = that.display1
-          d0 = that.display0.asInstanceOf[Node]
+          d0 = that.display0.asInstanceOf[Leaf]
         } else {
           if (that.display5.!=(null))
             d5 = that.display5
@@ -850,9 +858,9 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           else
             d1 = d2(0).asInstanceOf[Node]
           if (d1.==(null))
-            d0 = that.display0.asInstanceOf[Node]
+            d0 = that.display0.asInstanceOf[Leaf]
           else
-            d0 = d1(0).asInstanceOf[Node]
+            d0 = d1(0).asInstanceOf[Leaf]
         }
         var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
         concat = rebalanced(this.display1, concat, d1, 2)
@@ -860,7 +868,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         concat = rebalanced(this.display3, concat, d3, 4)
         concat = rebalanced(this.display4, concat, d4, 5)
         concat = rebalanced(this.display5, concat, that.display5, 6)
-        if (concat.length.==(2))
+        if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 6)
         else
           initFromRoot(withComputedSizes(concat, 7), 7)
@@ -916,7 +924,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         concat = rebalanced(this.display4, concat, d4, 5)
         concat = rebalanced(this.display5, concat, d5, 6)
         concat = rebalanced(this.display6, concat, that.display6, 7)
-        if (concat.length.==(2))
+        if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 7)
         else
           initFromRoot(withComputedSizes(concat, 8), 8)

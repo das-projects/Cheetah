@@ -4,12 +4,11 @@ import scala.annotation.unchecked.uncheckedVariance
 import scala.{specialized => sp}
 
 class VectorReverseIterator[@sp +A](startIndex: Int,
-                                    final override private[immutable] val endIndex: Int)
+                                    final override private[Immutable] val endIndex: Int)
   extends Iterator[A]
-    with VectorPointer[A@uncheckedVariance] {
+    with VectorPointer[A @uncheckedVariance] {
 
-  /*Index in the vector of the first element of the current block, i.e. current display0 */
-  private var blockIndex: Int = _
+  private var lastIndexOfBlock: Int = _
   /*Index in the current block, i.e. current display0 */
   private var lo: Int = _
   /*End index (or length) of the current block, i.e. current display0 */
