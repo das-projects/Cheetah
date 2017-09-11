@@ -123,18 +123,21 @@ private [Immutable] trait VectorPointer[@sp A]{
     focusOn(0)
   }
 
-  final private[Immutable] def initSingleton(elem: A): Unit = { // TODO Need to check for correctness
+  final private[Immutable] def initSingleton(elem: A): Unit = {
+    // TODO Need to check for correctness: Seems Fine
     initFocus(0, 0, 1, 1, 0)
     val d0: Leaf = new Leaf(1)
     val d1: Node = new Node(2)
     val size: Array[Int] = new Array[Int](1)
-    size.update(0,d0.length)
 
     d0.update(0, elem)
     display0 = d0
+
     d1.update(0, display0)
+    size.update(0,d0.length)
     d1.update(1, size)
     display1 = d1
+
     depth = 1
 
   }
@@ -217,7 +220,7 @@ private [Immutable] trait VectorPointer[@sp A]{
   }
 
   final private[Immutable] def gotoPosFromRoot(index: Int): Unit = {
-
+//TODO Check for correctness: Seems fine
     var _startIndex: Int = 0
     var _endIndex: Int = endIndex
     var currentDepth: Int = depth
@@ -1426,7 +1429,7 @@ private [Immutable] trait VectorPointer[@sp A]{
 
   final private def getElem1(block: Node, index: Int): A =
     block(index >> 5 & 31)
-      .asInstanceOf[Leaf](index.&(31))
+      .asInstanceOf[Leaf](index & 31)
       .asInstanceOf[A]
 
   final private def getElem2(block: Node, index: Int): A =

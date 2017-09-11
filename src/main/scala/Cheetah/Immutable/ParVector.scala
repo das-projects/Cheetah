@@ -22,10 +22,10 @@ class ParVector[@sp +A](vector: Vector[A])
 
   def apply(idx: Int) = vector.apply(idx)
 
-  def length = vector.length
+  def length = vector.size
 
   def splitter: SeqSplitter[A] = {
-    val pit = new ParVectorIterator(0, vector.length)
+    val pit = new ParVectorIterator(0, vector.size)
     pit.initIteratorFrom(vector)
     pit
   }
