@@ -25,7 +25,7 @@ private [Immutable] trait VectorPointer[@sp A]{
 
   private[Immutable] def endIndex: Int
 
-  final private[Immutable] def initWithFocusFrom[@sp B >: A](that: VectorPointer[B]): Unit = {
+  final private[Immutable] def initWithFocusFrom(that: VectorPointer[A]): Unit = {
     initFocus(that.focus,
       that.focusStart,
       that.focusEnd,
@@ -46,53 +46,61 @@ private [Immutable] trait VectorPointer[@sp A]{
     this.focusRelax = focusRelax
   }
 
-  final private[Immutable] def initFrom[@sp B >: A](that: VectorPointer[B]): Unit = {
+  final private[Immutable] def initFrom(that: VectorPointer[A]): Unit = {
 
     depth = that.depth
     that.depth match {
       case 0 => ()
 
       case 1 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
-
-      case 2 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+        this.display0 = that.display0
         this.display1 = that.display1
 
-      case 3 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+      case 2 =>
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
 
-      case 4 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+      case 3 =>
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
 
-      case 5 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+      case 4 =>
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
         this.display4 = that.display4
 
-      case 6 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+      case 5 =>
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
         this.display4 = that.display4
         this.display5 = that.display5
 
-      case 7 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+
+      case 6 =>
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
         this.display4 = that.display4
         this.display5 = that.display5
         this.display6 = that.display6
+
+      case 7 =>
+        this.display0 = that.display0
+        this.display1 = that.display1
+        this.display2 = that.display2
+        this.display3 = that.display3
+        this.display4 = that.display4
+        this.display5 = that.display5
+        this.display6 = that.display6
+        this.display7 = that.display7
 
       case _ => throw new IllegalStateException()
     }
@@ -101,13 +109,13 @@ private [Immutable] trait VectorPointer[@sp A]{
   final private[Immutable] def initFromRoot(root: Node,
                                             depth: Int): Unit = {
     depth match {
-      case 1 => display0 = root.asInstanceOf[Leaf]
-      case 2 => display1 = root
-      case 3 => display2 = root
-      case 4 => display3 = root
-      case 5 => display4 = root
-      case 6 => display5 = root
-      case 7 => display6 = root
+      case 1 => display1 = root
+      case 2 => display2 = root
+      case 3 => display3 = root
+      case 4 => display4 = root
+      case 5 => display5 = root
+      case 6 => display6 = root
+      case 7 => display7 = root
     }
 
     this.depth = depth
@@ -115,28 +123,36 @@ private [Immutable] trait VectorPointer[@sp A]{
     focusOn(0)
   }
 
-  final private[Immutable] def initSingleton[@sp B >: A](elem: B): scala.Unit = {
+  final private[Immutable] def initSingleton(elem: A): Unit = { // TODO Need to check for correctness
     initFocus(0, 0, 1, 1, 0)
-    val d0 = new Array(1).asInstanceOf[Node]
-    d0.update(0, elem.asInstanceOf[Node])
+    val d0: Leaf = new Leaf(1)
+    val d1: Node = new Node(2)
+    val size: Array[Int] = new Array[Int](1)
+    size.update(0,d0.length)
+
+    d0.update(0, elem)
     display0 = d0
+    d1.update(0, display0)
+    d1.update(1, size)
+    display1 = d1
     depth = 1
+
   }
 
-  final private[Immutable] def root(): Node = depth match {
+  final private[Immutable] def root: Node = depth match {
     case 0 => null
-    case 1 => display0.asInstanceOf[Node]
-    case 2 => display1
-    case 3 => display2
-    case 4 => display3
-    case 5 => display4
-    case 6 => display5
-    case 7 => display6
+    case 1 => display1
+    case 2 => display2
+    case 3 => display3
+    case 4 => display4
+    case 5 => display5
+    case 6 => display6
+    case 7 => display7
     case _ => throw new IllegalStateException()
   }
 
   final private[Immutable] def focusOn(index: Int): Unit = {
-    if (focusStart <= index && (index < focusEnd)) {
+    if (focusStart <= index && index < focusEnd) {
       val indexInFocus = index - focusStart
       val xor = indexInFocus ^ focus
       if (xor >= 32)
@@ -152,12 +168,13 @@ private [Immutable] trait VectorPointer[@sp A]{
     var currentDepth = depth
 
     var display: Node = currentDepth match {
-      case 2 => display1
-      case 3 => display2
-      case 4 => display3
-      case 5 => display4
-      case 6 => display5
-      case 7 => display6
+      case 1 => display1
+      case 2 => display2
+      case 3 => display3
+      case 4 => display4
+      case 5 => display5
+      case 6 => display6
+      case 7 => display7
     }
 
     var sizes = display(display.length - 1).asInstanceOf[Array[Int]]
@@ -176,26 +193,26 @@ private [Immutable] trait VectorPointer[@sp A]{
     } while (sizes != null)
 
     currentDepth match {
-      case 1 => getElem0(display.asInstanceOf[Leaf], indexInSubTree)
-      case 2 => getElem1(display, indexInSubTree)
-      case 3 => getElem2(display, indexInSubTree)
-      case 4 => getElem3(display, indexInSubTree)
-      case 5 => getElem4(display, indexInSubTree)
-      case 6 => getElem5(display, indexInSubTree)
-      case 7 => getElem6(display, indexInSubTree)
+      case 1 => getElem1(display, indexInSubTree)
+      case 2 => getElem2(display, indexInSubTree)
+      case 3 => getElem3(display, indexInSubTree)
+      case 4 => getElem4(display, indexInSubTree)
+      case 5 => getElem5(display, indexInSubTree)
+      case 6 => getElem6(display, indexInSubTree)
+      case 7 => getElem7(display, indexInSubTree)
       case _ => throw new IllegalStateException()
     }
   }
 
-  final private def getIndexInSizes(sizes: Array[Int],
+  @inline final private def getIndexInSizes(sizes: Array[Int],
                                     indexInSubTree: Int): Int = {
 
     if (indexInSubTree == 0)
       return 0
 
     var is = 0
-
-    while (sizes(is) <= indexInSubTree) is += 1
+    while (sizes(is) <= indexInSubTree)
+      is += 1
     is
   }
 
@@ -205,34 +222,37 @@ private [Immutable] trait VectorPointer[@sp A]{
     var _endIndex: Int = endIndex
     var currentDepth: Int = depth
     var _focusRelax: Int = 0
-    var continue: Boolean = currentDepth > 1
+    var continue: Boolean = currentDepth > 0
 
     if (continue) {
       var display: Node = currentDepth match {
-        case 2 => display1
-        case 3 => display2
-        case 4 => display3
-        case 5 => display4
-        case 6 => display5
-        case 7 => display6
-        case _ => throw new IllegalStateException()
+        case 1 => display1
+        case 2 => display2
+        case 3 => display3
+        case 4 => display4
+        case 5 => display5
+        case 6 => display6
+        case 7 => display7
+        case _ => throw new IllegalStateException(currentDepth.toString)
       }
+
       do {
         val sizes = display(display.length - 1).asInstanceOf[Array[Int]]
         if (sizes == null)
           continue = false
         else {
-          val is = getIndexInSizes(sizes, index - _startIndex)
+          val is: Int = getIndexInSizes(sizes, index - _startIndex)
           display = display(is).asInstanceOf[Node]
           currentDepth match {
-            case 2 =>
+            case 1 =>
               display0 = display.asInstanceOf[Leaf]
               continue = false
-            case 3 => display1 = display
-            case 4 => display2 = display
-            case 5 => display3 = display
-            case 6 => display4 = display
-            case 7 => display5 = display
+            case 2 => display1 = display
+            case 3 => display2 = display
+            case 4 => display3 = display
+            case 5 => display4 = display
+            case 6 => display5 = display
+            case 7 => display6 = display
           }
           if (is < sizes.length - 1)
             _endIndex = _startIndex + sizes(is)
@@ -245,7 +265,7 @@ private [Immutable] trait VectorPointer[@sp A]{
         }
       } while (continue)
     }
-    val indexInFocus = index - _startIndex
+    val indexInFocus: Int = index - _startIndex
     gotoPos(indexInFocus, 1 << (5 * (currentDepth - 1)))
     initFocus(indexInFocus, _startIndex, _endIndex, currentDepth, _focusRelax)
   }
@@ -508,9 +528,7 @@ private [Immutable] trait VectorPointer[@sp A]{
   }
 
   final private[Immutable] def gotoPos(index: Int, xor: Int): Unit = {
-    if (xor < (1 << 5))
-      ()
-    else if (xor < (1 << 10))
+    if (xor < (1 << 10))
       display0 = display1(index >> 5 & 31).asInstanceOf[Leaf]
     else if (xor < (1 << 15)) {
       display1 = display2(index >> 10 & 31).asInstanceOf[Node]
@@ -537,8 +555,16 @@ private [Immutable] trait VectorPointer[@sp A]{
       display2 = display3(index >> 15 & 31).asInstanceOf[Node]
       display1 = display2(index >> 10 & 31).asInstanceOf[Node]
       display0 = display1(index >> 5 & 31).asInstanceOf[Leaf]
+    } else if (xor < (1 << 40)) {
+      display6 = display7(index >> 35 & 31).asInstanceOf[Node]
+      display5 = display6(index >> 30 & 31).asInstanceOf[Node]
+      display4 = display5(index >> 25 & 31).asInstanceOf[Node]
+      display3 = display4(index >> 20 & 31).asInstanceOf[Node]
+      display2 = display3(index >> 15 & 31).asInstanceOf[Node]
+      display1 = display2(index >> 10 & 31).asInstanceOf[Node]
+      display0 = display1(index >> 5 & 31).asInstanceOf[Leaf]
     } else
-      throw new IllegalArgumentException()
+      throw new IllegalArgumentException(index.toString)
   }
 
   final private[Immutable] def gotoNextBlockStart(index: Int,
@@ -642,7 +668,7 @@ private [Immutable] trait VectorPointer[@sp A]{
       display2.update(index >> 10 & 31, display1)
       display3.update(index >> 15 & 31, display2)
     } else if (xor < (1 << 25)) {
-      if (depth.==(4)) {
+      if (depth == 4) {
         display4 = new Node(33)
         display4.update(0, display3)
         depth += 1
@@ -672,7 +698,7 @@ private [Immutable] trait VectorPointer[@sp A]{
       display4.update(index >> 20 & 31, display3)
       display5.update(index >> 25 & 31, display4)
     } else if (xor < (1 << 35)) {
-      if (depth.==(6)) {
+      if (depth == 6) {
         display6 = new Node(33)
         display6.update(0, display5)
         depth += 1
@@ -1045,13 +1071,13 @@ private [Immutable] trait VectorPointer[@sp A]{
   }
 
   private[Immutable] def cleanTopDrop(cutIndex: Int): Unit = this.depth match {
-    case 2 =>
+    case 1 =>
       if ((cutIndex >> 5) == (display1.length - 2)) {
         display1 = null
         this.depth = 1
       } else
         this.depth = 2
-    case 3 =>
+    case 2 =>
       if ((cutIndex >> 10) == (display2.length - 2)) {
         display2 = null
         if ((cutIndex >> 5) == (display1.length - 2)) {
@@ -1061,7 +1087,7 @@ private [Immutable] trait VectorPointer[@sp A]{
           this.depth = 2
       } else
         this.depth = 3
-    case 4 =>
+    case 3 =>
       if ((cutIndex >> 15) == (display3.length - 2)) {
         display3 = null
         if ((cutIndex >> 10) == (display2.length - 2)) {
@@ -1075,7 +1101,7 @@ private [Immutable] trait VectorPointer[@sp A]{
           this.depth = 3
       } else
         this.depth = 4
-    case 5 =>
+    case 4 =>
       if ((cutIndex >> 20) == (display4.length - 2)) {
         display4 = null
         if ((cutIndex >> 15) == (display3.length - 2)) {
@@ -1093,7 +1119,7 @@ private [Immutable] trait VectorPointer[@sp A]{
           this.depth = 4
       } else
         this.depth = 5
-    case 6 =>
+    case 5 =>
       if ((cutIndex >> 25) == (display5.length - 2)) {
         display5 = null
         if ((cutIndex >> 20) == (display4.length - 2)) {
@@ -1115,7 +1141,7 @@ private [Immutable] trait VectorPointer[@sp A]{
           this.depth = 5
       } else
         this.depth = 6
-    case 7 =>
+    case 6 =>
       if ((cutIndex >> 30) == (display6.length - 2)) {
         display6 = null
         if ((cutIndex >> 25) == (display5.length - 2)) {
@@ -1143,9 +1169,9 @@ private [Immutable] trait VectorPointer[@sp A]{
         this.depth = 7
   }
 
-  final private[Immutable] def copyOf(array: Node) = {
-    val len = array.length
-    val newArray = new Node(len)
+  final private[Immutable] def copyOf(array: Node): Node = {
+    val len: Int = array.length
+    val newArray: Node = new Node(len)
     System.arraycopy(array, 0, newArray, 0, len)
     newArray
   }
@@ -1153,39 +1179,39 @@ private [Immutable] trait VectorPointer[@sp A]{
   final private[Immutable] def copyOf(array: Node,
                                       numElements: Int,
                                       newSize: Int): Node = {
-    val newArray = new Node(newSize)
+    val newArray: Node = new Node(newSize)
     System.arraycopy(array, 0, newArray, 0, numElements)
     newArray
   }
   final private[Immutable] def copyOf(array: Leaf,
                                       numElements: Int,
                                       newSize: Int): Leaf = {
-    val newArray = new Leaf(newSize)
+    val newArray: Leaf = new Leaf(newSize)
     System.arraycopy(array, 0, newArray, 0, numElements)
     newArray
   }
 
   final private[Immutable] def copyOfAndNull(array: Node,
-                                             nullIndex: Int) = {
-    val len = array.length
-    val newArray = new Node(len)
+                                             nullIndex: Int): Node = {
+    val len: Int = array.length
+    val newArray: Node = new Node(len)
     System.arraycopy(array, 0, newArray, 0, len - 1)
     newArray.update(nullIndex, null)
-    val sizes = array(len - 1).asInstanceOf[Array[Int]]
+    val sizes: Array[Int] = array(len - 1).asInstanceOf[Array[Int]]
     if (sizes != null)
       newArray.update(len - 1, makeTransientSizes(sizes, nullIndex))
     newArray
   }
 
   final private def makeNewRoot0(node: Node): Node = {
-    val newRoot = new Node(3)
+    val newRoot: Node = new Node(3)
     newRoot.update(0, node)
     val dLen = node.length
     val dSizes = node(dLen - 1)
 
     if (dSizes != null) {
       val newRootSizes = new Array[Int](2)
-      val dSize = dSizes.asInstanceOf[Array[Int]](dLen.-(2))
+      val dSize = dSizes.asInstanceOf[Array[Int]](dLen - 2)
       newRootSizes.update(0, dSize)
       newRootSizes.update(1, dSize)
       newRoot.update(2, newRootSizes)
@@ -1198,7 +1224,7 @@ private [Immutable] trait VectorPointer[@sp A]{
     val dSize = treeSize(node, currentDepth - 1)
     val newRootSizes = new Array[Int](2)
     newRootSizes.update(1, dSize)
-    val newRoot = new Node(3)
+    val newRoot: Node = new Node(3)
     newRoot.update(1, node)
     newRoot.update(2, newRootSizes)
     newRoot
@@ -1243,7 +1269,7 @@ private [Immutable] trait VectorPointer[@sp A]{
 
   final private def copyAndIncLeftRoot(node: Node,
                                        transient: Boolean,
-                                       currentLevel: Int) = {
+                                       currentLevel: Int): Node = {
     val len = node.length
     val newRoot = new Node(len + 1)
     System.arraycopy(node, 0, newRoot, 1, len - 1)
@@ -1272,7 +1298,7 @@ private [Immutable] trait VectorPointer[@sp A]{
     newRoot
   }
 
-  final private[Immutable] def withComputedSizes1(node: Node) = {
+  final private[Immutable] def withComputedSizes1(node: Node): Node = {
     var i = 0
     var acc = 0
     val end = node.length - 1
@@ -1291,7 +1317,7 @@ private [Immutable] trait VectorPointer[@sp A]{
   }
 
   final private[Immutable] def withComputedSizes(node: Node,
-                                                 currentDepth: Int) = {
+                                                 currentDepth: Int): Node = {
     var i = 0
     var acc = 0
     val end = node.length - 1
@@ -1322,7 +1348,7 @@ private [Immutable] trait VectorPointer[@sp A]{
 
   final private def withRecomputedSizes(node: Node,
                                         currentDepth: Int,
-                                        branchToUpdate: Int) = {
+                                        branchToUpdate: Int): Node = {
     val end = node.length - 1
     val oldSizes = node(end).asInstanceOf[Array[Int]]
 
@@ -1356,21 +1382,22 @@ private [Immutable] trait VectorPointer[@sp A]{
 
   private def treeSize(tree: Node, currentDepth: Int): Int = {
     @scala.annotation.tailrec
-    def treeSizeRec(node: Node, currentDepth: Int, acc: Int): Int =
-      if (currentDepth == 1)
-        acc + node.length
-      else {
-        val treeSizes: Array[Int] = node(node.length - 1).asInstanceOf[Array[Int]]
-        if (treeSizes != null)
-          acc + treeSizes(treeSizes.length - 1)
+    def treeSizeRec(node: Node, currentDepth: Int, acc: Int): Int = {
+        if (currentDepth == 1)
+          acc + node.length
         else {
-          val len = node.length
-          treeSizeRec(node(len - 2).asInstanceOf[Node],
-            currentDepth - 1,
-            acc + (len - 2 * (1<<(5*(currentDepth - 1))))
-          )
+          val treeSizes: Array[Int] = node(node.length - 1).asInstanceOf[Array[Int]]
+          if (treeSizes != null)
+            acc + treeSizes(treeSizes.length - 1)
+          else {
+            val len = node.length
+            treeSizeRec(node(len - 2).asInstanceOf[Node],
+              currentDepth - 1,
+              acc + (len - 2 * (1 << (5 * (currentDepth - 1))))
+            )
+          }
         }
-      }
+    }
     treeSizeRec(tree, currentDepth, 0)
   }
 
@@ -1389,6 +1416,8 @@ private [Immutable] trait VectorPointer[@sp A]{
       getElem5(display5, index)
     else if (xor < (1<<35))
       getElem6(display6, index)
+    else if (xor < (1<<40))
+      getElem7(display7, index)
     else
       throw new IllegalArgumentException(xor.toString)
   }
@@ -1397,52 +1426,63 @@ private [Immutable] trait VectorPointer[@sp A]{
 
   final private def getElem1(block: Node, index: Int): A =
     block(index >> 5 & 31)
-      .asInstanceOf[Node](index.&(31))
+      .asInstanceOf[Leaf](index.&(31))
       .asInstanceOf[A]
 
   final private def getElem2(block: Node, index: Int): A =
-    block(index.>>(10).&(31))
-      .asInstanceOf[Node](index.>>(5).&(31))
-      .asInstanceOf[Node](index.&(31))
+    block(index >> 10 & 31)
+      .asInstanceOf[Node](index >> 5 & 31)
+      .asInstanceOf[Leaf](index & 31)
       .asInstanceOf[A]
 
   final private def getElem3(block: Node, index: Int): A =
-    block(index.>>(15).&(31))
-      .asInstanceOf[Node](index.>>(10).&(31))
-      .asInstanceOf[Node](index.>>(5).&(31))
-      .asInstanceOf[Node](index.&(31))
+    block(index >> 15 & 31)
+      .asInstanceOf[Node](index >> 10 & 31)
+      .asInstanceOf[Node](index >> 5 & 31)
+      .asInstanceOf[Leaf](index & 31)
       .asInstanceOf[A]
 
   final private def getElem4(block: Node, index: Int): A =
-    block(index.>>(20).&(31))
-      .asInstanceOf[Node](index.>>(15).&(31))
-      .asInstanceOf[Node](index.>>(10).&(31))
-      .asInstanceOf[Node](index.>>(5).&(31))
-      .asInstanceOf[Node](index.&(31))
+    block(index >> 20 & 31)
+      .asInstanceOf[Node](index >> 15 & 31)
+      .asInstanceOf[Node](index >> 10 & 31)
+      .asInstanceOf[Node](index >> 5 & 31)
+      .asInstanceOf[Leaf](index & 31)
       .asInstanceOf[A]
 
   final private def getElem5(block: Node, index: Int): A =
-    block(index.>>(25).&(31))
-      .asInstanceOf[Node](index.>>(20).&(31))
-      .asInstanceOf[Node](index.>>(15).&(31))
-      .asInstanceOf[Node](index.>>(10).&(31))
-      .asInstanceOf[Node](index.>>(5).&(31))
-      .asInstanceOf[Node](index.&(31))
+    block(index >> 25 & 31)
+      .asInstanceOf[Node](index >> 20 & 31)
+      .asInstanceOf[Node](index >> 15 & 31)
+      .asInstanceOf[Node](index >> 10 & 31)
+      .asInstanceOf[Node](index >> 5 & 31)
+      .asInstanceOf[Leaf](index & 31)
       .asInstanceOf[A]
 
   final private def getElem6(block: Node, index: Int): A =
-    block(index.>>(30).&(31))
-      .asInstanceOf[Node](index.>>(25).&(31))
-      .asInstanceOf[Node](index.>>(20).&(31))
-      .asInstanceOf[Node](index.>>(15).&(31))
-      .asInstanceOf[Node](index.>>(10).&(31))
-      .asInstanceOf[Node](index.>>(5).&(31))
-      .asInstanceOf[Node](index.&(31))
+    block(index >> 30 & 31)
+      .asInstanceOf[Node](index >> 25 & 31)
+      .asInstanceOf[Node](index >> 20 & 31)
+      .asInstanceOf[Node](index >> 15 & 31)
+      .asInstanceOf[Node](index >> 10 & 31)
+      .asInstanceOf[Node](index >> 5 & 31)
+      .asInstanceOf[Leaf](index & 31)
+      .asInstanceOf[A]
+
+  final private def getElem7(block: Node, index: Int): A =
+    block(index >> 35 & 31)
+      .asInstanceOf[Node](index >> 30 & 31)
+      .asInstanceOf[Node](index >> 25 & 31)
+      .asInstanceOf[Node](index >> 20 & 31)
+      .asInstanceOf[Node](index >> 15 & 31)
+      .asInstanceOf[Node](index >> 10 & 31)
+      .asInstanceOf[Node](index >> 5 & 31)
+      .asInstanceOf[Leaf](index & 31)
       .asInstanceOf[A]
 
   private[Immutable] def debugToString(): String = {
     val sb = new StringBuilder()
-    sb.append("RRBVector (\n")
+    sb.append("Vector (\n")
     sb.append(
       "\t"
         .+("display0")
@@ -1524,6 +1564,18 @@ private [Immutable] trait VectorPointer[@sp A]{
         .+(
           if (display6.!=(null))
             display6.mkString("[", ", ", "]")
+          else
+            "")
+        .+("\n"))
+    sb.append(
+      "\t"
+        .+("display7")
+        .+(" = ")
+        .+(display7)
+        .+(" ")
+        .+(
+          if (display7.!=(null))
+            display7.mkString("[", ", ", "]")
           else
             "")
         .+("\n"))

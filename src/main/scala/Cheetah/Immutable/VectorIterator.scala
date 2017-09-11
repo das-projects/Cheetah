@@ -4,7 +4,7 @@ import scala.annotation.unchecked.uncheckedVariance
 import scala.{specialized => sp}
 
 class VectorIterator[@sp +A](startIndex: Int,
-                          override private[Immutable] val endIndex: Int)
+                             override private[Immutable] val endIndex: Int)
   extends Iterator[A]
     with VectorPointer[A @uncheckedVariance] {
 
@@ -16,9 +16,8 @@ class VectorIterator[@sp +A](startIndex: Int,
   private var endLo: Int = _
   private var _hasNext: Boolean = _
 
-  final private[Immutable] def initIteratorFrom[@sp B >: A](
-                                                             that: VectorPointer[B]): Unit = {
-    initWithFocusFrom(that)
+  final private[Immutable] def initIteratorFrom[@sp B >: A](that: VectorPointer[B]): Unit = {
+    initWithFocusFrom(that.asInstanceOf[VectorPointer[A]])
     _hasNext = startIndex < endIndex
     if (_hasNext) {
       focusOn(startIndex)

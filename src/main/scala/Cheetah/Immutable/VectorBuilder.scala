@@ -2,7 +2,7 @@ package Cheetah.Immutable
 
 import scala.annotation.tailrec
 import scala.annotation.unchecked.uncheckedVariance
-import scala.collection.mutable
+import scala.collection.{TraversableLike, mutable}
 import scala.{specialized => sp}
 import scala.{Vector => Vec}
 
@@ -12,17 +12,19 @@ final class VectorBuilder[@sp A]
     with VectorPointer[A @uncheckedVariance] {
 
   display0 = new Leaf(32)
+  display1 = new Node(33)
+  display1.update(0,display0) // TODO Understand implications
   depth = 1
 
   private var blockIndex: Int = 0
   private var lo: Int = 0
   private var acc: Vector[A] = _
 
-  def finalise: Vector[A] = result
+  //def finalise: Vector[A] = result
 
-  def +=(elem: A): this.type = {
+  def +=(elem: A): VectorBuilder[A] = {
     if (lo >= 32) {
-      val newBlockIndex = blockIndex + 32
+      val newBlockIndex: Int = blockIndex + 32
       gotoNextBlockStartWritable(newBlockIndex, newBlockIndex ^ blockIndex)
       blockIndex = newBlockIndex
       lo = 0
@@ -30,25 +32,37 @@ final class VectorBuilder[@sp A]
     display0.update(lo, elem)
     lo += 1
     this
-
   }
 
-  override def ++=(xs: TraversableOnce[A]): this.type = {
+  override def ++=(xs: TraversableOnce[A]): VectorBuilder[A] = {
+    @tailrec def loopVector(xs: Vector[A]): Unit = {
+      if (xs.nonEmpty) {
+        this += xs.head
+        loopVector(xs.tail)
+      }
+    }
     if (xs.nonEmpty)
       xs match {
         case thatVec: Vector[A] =>
-          if (thatVec.size > (1 << 10))
+          if (thatVec.size > (1 << 10)) {
             if (endIndex != 0) {
-              acc = this.result() ++ xs
+              acc = this.result ++ xs
               this.clearCurrent()
-            } else if (acc != null)
-              acc = acc ++ thatVec
-            else
-              acc = thatVec
-          else {
-            super.++=(xs)
+            } else {
+              if (acc != null)
+                acc = acc ++ thatVec
+              else
+                acc = thatVec
+            }
+          } else {
+            loopVector(thatVec)
+            acc = this.result
+            this.clearCurrent()
           }
-        case _ => super.++=(xs)
+        case _ =>
+          xs foreach +=
+          acc = this.result
+          this.clearCurrent()
       }
     this
   }
@@ -63,16 +77,15 @@ final class VectorBuilder[@sp A]
     resultVector
   }
 
-  def clear: Unit = {
+  def clear(): Unit = {
     clearCurrent()
     acc = null
   }
 
-  private[Immutable] def endIndex = {
+  private[Immutable] def endIndex: Int = {
     var sz = blockIndex + lo
     if (acc != null)
       sz += acc.endIndex
-
     sz
   }
 
@@ -103,8 +116,19 @@ final class VectorBuilder[@sp A]
     display4 = _
     display5 = _
     display6 = _
+    display7 = _
     depth = 1
     blockIndex = 0
     lo = 0
   }
+
+  override def sizeHint(size: Int): Unit = super.sizeHint(size)
+
+  override def sizeHint(coll: TraversableLike[_, _]): Unit = super.sizeHint(coll)
+
+  override def sizeHint(coll: TraversableLike[_, _], delta: Int): Unit = super.sizeHint(coll, delta)
+
+  override def sizeHintBounded(size: Int, boundingColl: TraversableLike[_, _]): Unit = super.sizeHintBounded(size, boundingColl)
+
+  override def mapResult[NewTo](f: (Vector[A]) => NewTo): mutable.Builder[A, NewTo] = super.mapResult(f)
 }

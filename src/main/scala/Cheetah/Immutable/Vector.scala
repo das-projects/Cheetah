@@ -4,7 +4,6 @@ import Cheetah.Immutable.Vector.{Coll, ReusableCBF}
 
 import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.generic.{CanBuildFrom, FilterMonadic, GenericCompanion, IndexedSeqFactory}
-import scala.collection.mutable.Builder
 import scala.collection.parallel.{Combiner, ParIterable}
 import scala.collection.{GenIterable, GenTraversableOnce, IndexedSeqLike, IterableLike, IterableView, Iterator, Traversable, TraversableLike, breakOut, immutable, mutable}
 import scala.reflect.ClassTag
@@ -67,9 +66,9 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
 
   def apply(index: Int): A = {
     val _focusStart = this.focusStart
-    if (_focusStart <= index && index < focusEnd) {
+    if (_focusStart <= index && index < this.focusEnd) {
       val indexInFocus = index - _focusStart
-      getElem(indexInFocus, indexInFocus ^ focus)
+      getElem(indexInFocus, indexInFocus ^ this.focus)
     } else if (0 <= index && index < endIndex)
       getElementFromRoot(index)
     else
@@ -98,29 +97,29 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
 
   override def ++[@sp B >: A, @sp That](that: GenTraversableOnce[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
 
-    if (bf.eq(IndexedSeq.ReusableCBF))
-      if (that.isEmpty)
-        this.asInstanceOf[That]
-      else that match {
-        case thatVec: Vector[B] =>
-          if (this.endIndex == 0)
-            thatVec.asInstanceOf[That]
-          else {
-            val newVec = new Vector(this.endIndex + thatVec.endIndex)
-            newVec.initWithFocusFrom(this)
-            newVec.transient = this.transient
-            newVec.concatenate(this.endIndex, thatVec)
-            newVec.asInstanceOf[That]
-          }
-        case _ =>
-          val b = newBuilder[B]  // TODO Make sure this is working at it is supposed to
-          if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
-          b ++= thisCollection
-          b ++= that.seq
-          b.result.asInstanceOf[That]
-      }
-    else {
-      val b = newBuilder[B]
+    if (bf.eq(IndexedSeq.ReusableCBF)) {
+        if (that.isEmpty)
+          this.asInstanceOf[That]
+        else that match {
+          case thatVec: Vector[B] =>
+            if (this.endIndex == 0)
+              thatVec.asInstanceOf[That]
+            else {
+              val newVec = new Vector[B](this.endIndex + thatVec.endIndex)
+              newVec.initWithFocusFrom(this.asInstanceOf[Vector[B]])
+              newVec.transient = this.transient
+              newVec.concatenate(this.endIndex, thatVec)
+              newVec.asInstanceOf[That]
+            }
+          case _ =>
+            val b: mutable.Builder[B, Vector[B]] = newBuilder[B] // TODO Make sure this is working at it is supposed to
+            if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
+            b ++= thisCollection
+            b ++= that.seq
+            b.result.asInstanceOf[That]
+        }
+      } else {
+      val b: mutable.Builder[B, Vector[B]] = newBuilder[B]
       if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
       b ++= thisCollection
       b ++= that.seq
@@ -129,7 +128,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   override def ++:[@sp B >: A, @sp That](that: TraversableOnce[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    val b = newBuilder[B]
+    val b: mutable.Builder[B, Vector[B]] = newBuilder[B]
     if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
     b ++= that
     b ++= thisCollection
@@ -143,10 +142,10 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
     if (bf.eq(IndexedSeq.ReusableCBF)) {
       val _endIndex = this.endIndex
-      if (_endIndex.!=(0)) {
+      if (_endIndex != 0) {
         val resultVector = new Vector[B](_endIndex + 1)
         resultVector.transient = this.transient
-        resultVector.initWithFocusFrom(this)
+        resultVector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
         resultVector.append(elem, _endIndex)
         resultVector.asInstanceOf[That]
       } else
@@ -167,7 +166,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       if (_endIndex != 0) {
         val resultVector = new Vector[B](_endIndex + 1)
         resultVector.transient = this.transient
-        resultVector.initWithFocusFrom(this)
+        resultVector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
         resultVector.prepend(elem)
         resultVector.asInstanceOf[That]
       } else
@@ -200,17 +199,17 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   override def filter(p: (A) => Boolean): Vector[A] = {
-    val b = newBuilder
+    val b = newBuilder[A]
     for (x <- this)
       if (p(x)) b += x // Sugared form of foreach
-    b.result.asInstanceOf[Vector[A]]
+    b.result
   }
 
   override def filterNot(p: (A) => Boolean): Vector[A] = {
-    val b = newBuilder
+    val b = newBuilder[A]
     for (x <- this)
       if (!p(x)) b += x // Sugared form of foreach
-    b.result.asInstanceOf[Vector[A]]
+    b.result
   }
 
   override def collect[@sp B >: A, @sp That](pf: PartialFunction[A, B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
@@ -229,7 +228,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     val m = mutable.Map.empty[K, VectorBuilder[A]]
     for (elem <- this) {
       val key = f(elem)
-      val bldr = m.getOrElseUpdate(key, newBuilder)
+      val bldr = m.getOrElseUpdate(key, newBuilder[A])
       bldr += elem
     }
     val b = immutable.Map.newBuilder[K, Vector[A]]
@@ -291,7 +290,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       if (!go && !p(x)) go = true
       if (go) b += x
     }
-    b.result.asInstanceOf[Vector[A]]
+    b.result
   }
 
   override def span(p: (A) => Boolean): (Vector[A], Vector[A]) = {
@@ -299,7 +298,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     var toLeft = true
     for (x <- this) (if (toLeft && p(x)) l else r) += x
 
-    (l.result.asInstanceOf[Vector[A]], r.result.asInstanceOf[Vector[A]])
+    (l.result, r.result)
   }
 
   override def splitAt(n: Int): (Vector[A], Vector[A]) = scala.Tuple2(take(n), drop(n))
@@ -482,6 +481,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
 
   override def seq: Iterable[A] = super.seq // TODO NOT SURE
 
+
   /*Methods from IterableLike */
 
   protected[this] override def thisCollection: Iterable[A] = super.thisCollection
@@ -580,8 +580,6 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
 
   /*Methods from GenericTraversableTemplate */
 
-  override protected[this] def newBuilder: mutable.Builder[A, Iterable[A]] = super.newBuilder
-
   override def genericBuilder[B]: mutable.Builder[B, Iterable[B]] = super.genericBuilder
 
   override def unzip[A1, A2](implicit asPair: (A) => (A1, A2)): (Iterable[A1], Iterable[A2]) = super.unzip
@@ -668,7 +666,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
 
   /*Methods from JavaLang*/
 
-  override def equals(o: scala.Any): Boolean = super.equals(o)
+  override def equals(o: Any): Boolean = super.equals(o)
 
   override def hashCode(): Int = super.hashCode()
 
@@ -691,13 +689,13 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     this.focusOn(currentSize - 1)
     spire.math.max(this.depth, that.depth) match {
       case 1 =>
-        val concat: Node = rebalancedLeafs(display0, that.display0, isTop = true)
-        initFromRoot(concat, if(endIndex <= 32) 1 else 2)
+        val concat: Node = rebalancedLeafs(display0, that.display0)
+        initFromRoot(concat, 1)
 
       case 2 =>
         var d0: Leaf = null
         var d1: Node = null
-        if (that.focus.&(-32) == 0) {
+        if (((that.focus | that.focusRelax) & -32) == 0) {
           d1 = that.display1
           d0 = that.display0.asInstanceOf[Leaf]
         } else {
@@ -708,7 +706,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           else
             d0 = d1(0).asInstanceOf[Leaf]
 
-          var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
+          var concat: Node = rebalancedLeafs(this.display0, d0)
           concat = rebalanced(this.display1, concat, that.display1, 2)
           if (concat.length == 2)
             initFromRoot(concat(0).asInstanceOf[Node], 2)
@@ -720,7 +718,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
-        if (that.focus.&(-32).==(0)) {
+        if ((that.focus & -32) == 0) {
           d2 = that.display2
           d1 = that.display1
           d0 = that.display0.asInstanceOf[Leaf]
@@ -728,7 +726,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           if (that.display2.!=(null))
             d2 = that.display2
 
-          if (d2.==(null))
+          if (d2 == null)
             d1 = that.display1
           else
             d1 = d2(0).asInstanceOf[Node]
@@ -737,7 +735,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           else
             d0 = d1(0).asInstanceOf[Leaf]
         }
-        var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
+        var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, that.display2, 3)
         if (concat.length == 2)
@@ -749,13 +747,13 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         var d1: Node = null
         var d2: Node = null
         var d3: Node = null
-        if (that.focus.&(-32) == 0) {
+        if ((that.focus & -32) == 0) {
           d3 = that.display3
           d2 = that.display2
           d1 = that.display1
           d0 = that.display0.asInstanceOf[Leaf]
         } else {
-          if (that.display3.!=(null))
+          if (that.display3 != null)
             d3 = that.display3
 
           if (d3 == null)
@@ -771,7 +769,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           else
             d0 = d1(0).asInstanceOf[Leaf]
         }
-        var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
+        var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
         concat = rebalanced(this.display3, concat, that.display3, 4)
@@ -785,39 +783,37 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         var d2: Node = null
         var d3: Node = null
         var d4: Node = null
-        if (that.focus.&(-32).==(0)) {
+        if ((that.focus & -32) == 0) {
           d4 = that.display4
           d3 = that.display3
           d2 = that.display2
           d1 = that.display1
           d0 = that.display0.asInstanceOf[Leaf]
         } else {
-          if (that.display4.!=(null))
+          if (that.display4 != null)
             d4 = that.display4
-          else
-            ()
-          if (d4.==(null))
+          if (d4 == null)
             d3 = that.display3
           else
             d3 = d4(0).asInstanceOf[Node]
-          if (d3.==(null))
+          if (d3 == null)
             d2 = that.display2
           else
             d2 = d3(0).asInstanceOf[Node]
-          if (d2.==(null))
+          if (d2 == null)
             d1 = that.display1
           else
             d1 = d2(0).asInstanceOf[Node]
-          if (d1.==(null))
+          if (d1 == null)
             d0 = that.display0.asInstanceOf[Leaf]
           else
             d0 = d1(0).asInstanceOf[Leaf]
         }
-        var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
+        var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
         concat = rebalanced(this.display3, concat, d3, 4)
-        concat = rebalanced(this.display4, concat, that.display4, 5)
+        concat = rebalanced(this.display4, concat, d4, 5)
         if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 5)
         else
@@ -829,7 +825,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         var d3: Node = null
         var d4: Node = null
         var d5: Node = null
-        if (that.focus.&(-32).==(0)) {
+        if (that.focus.&(-32) == 0) {
           d5 = that.display5
           d4 = that.display4
           d3 = that.display3
@@ -880,7 +876,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         var d4: Node = null
         var d5: Node = null
         var d6: Node = null
-        if (that.focus.&(-32).==(0)) {
+        if (that.focus.&(-32) == 0) {
           d6 = that.display6
           d5 = that.display5
           d4 = that.display4
@@ -928,52 +924,52 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           initFromRoot(concat(0).asInstanceOf[Node], 7)
         else
           initFromRoot(withComputedSizes(concat, 8), 8)
-      case _ => throw new IllegalStateException()
+      case _ => throw new IllegalStateException("depth = " + spire.math.max(this.depth, that.depth).toString)
     }
   }
 
   private def rebalanced[@sp B >: A](displayLeft: Node,
-                                     concat: Array[B],
+                                     concat: Node,
                                      displayRight: Node,
                                      currentDepth: Int): Node = {
-    val leftLength =
-      if (displayLeft == null)
-        0
-      else
-        displayLeft.length - 1
+    val leftLength: Int = {
+        if (displayLeft == null)
+          0
+        else
+          displayLeft.length - 1
+      }
 
-    val concatLength =
-      if (concat == null)
-        0
-      else
-        concat.length - 1
+    val concatLength: Int = {
+        if (concat == null)
+          0
+        else
+          concat.length - 1
+      }
 
-    val rightLength =
-      if (displayRight == null)
-        0
-      else
-        displayRight.length - 1
+    val rightLength: Int = {
+        if (displayRight == null)
+          0
+        else
+          displayRight.length - 1
+      }
 
-    val branching =
+    val branching: Int =
       computeBranching(displayLeft, concat, displayRight, currentDepth)
 
-    val top = new Node(branching>>10 + (if(branching.&(1<<10 - 1) == 0) 1 else 2))
-
-    var mid = new Node(
-      if ((branching>>10) == 0)
-        (branching + 31)>>5 + 1 else 33)
+    val top: Node = new Node(branching >> 10 + (if((branching & 1 << 10 - 1) == 0) 1 else 2))
+    var mid: Node = new Node(if((branching >> 10) == 0) (branching + 31) >> 5 + 1 else 33)
 
     var bot: Node = null
-    var iSizes = 0
-    var iTop = 0
-    var iMid = 0
-    var iBot = 0
-    var i = 0
-    var j = 0
-    var d = 0
+    var iSizes: Int = 0
+    var iTop: Int = 0
+    var iMid: Int = 0
+    var iBot: Int = 0
+    var i: Int = 0
+    var j: Int = 0
+    var d: Int = 0
 
     var currentDisplay: Node = null
-    var displayEnd = 0
+    var displayEnd: Int = 0
 
     do {
       d match {
@@ -986,30 +982,31 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
               displayEnd = leftLength - 1
           }
         case 1 =>
-          if (concat == null)
-            displayEnd = 0
-          else {
-            currentDisplay = concat.asInstanceOf[Node]
-            displayEnd = concatLength
+          {
+            if (concat == null)
+              displayEnd = 0
+            else {
+              currentDisplay = concat
+              displayEnd = concatLength
+            }
+            i = 0
           }
-          i = 0
         case 2 =>
           if (displayRight != null) {
             currentDisplay = displayRight
             displayEnd = rightLength
-            if (concat == null)
-              i = 0
-            else
-              i = 1
+            i = if (concat == null) 0 else 1
           }
       }
+
       while (i < displayEnd) {
-        val displayValue = currentDisplay(i).asInstanceOf[Node]
-        val displayValueEnd =
-          if (currentDepth == 2)
-            displayValue.length
-          else
-            displayValue.length.-(1)
+        val displayValue: Node = currentDisplay(i).asInstanceOf[Node]
+        val displayValueEnd: Int = {
+            if (currentDepth == 2)
+              displayValue.length
+            else
+              displayValue.length - 1
+          }
         if (((iBot | j) == 0) && (displayValueEnd == 32)) {
           if ((currentDepth != 2) && (bot != null)) {
             withComputedSizes(bot, currentDepth - 1)
@@ -1020,10 +1017,10 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           iMid += 1
           iSizes += 1
         } else {
-          val numElementsToCopy = spire.math.min(displayValueEnd - j, 32 - iBot)
+          val numElementsToCopy: Int = spire.math.min(displayValueEnd - j, 32 - iBot)
 
           if (iBot == 0) {
-            if (currentDepth != 2 && bot != null)
+            if ((currentDepth != 2) && (bot != null))
               withComputedSizes(bot, currentDepth - 1)
 
             bot = new Node(
@@ -1047,7 +1044,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
             iBot = 0
             iSizes += 1
             if (currentDepth != 2 && bot != null)
-              withComputedSizes(bot, currentDepth.-(1))
+              withComputedSizes(bot, currentDepth - 1)
           }
         }
         if (iMid == 32) {
@@ -1055,7 +1052,8 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
             if (currentDepth == 1)
               withComputedSizes1(mid)
             else
-              withComputedSizes(mid, currentDepth))
+              withComputedSizes(mid, currentDepth)
+          )
           iTop += 1
           iMid = 0
           val remainingBranches =
@@ -1063,13 +1061,15 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           if (remainingBranches > 0)
             mid = new Node(
               if ((remainingBranches >> 10) == 0)
-                remainingBranches.+(63).>>(5) else 33)
+                remainingBranches + 63 >> 5 else 33
+            )
           else
             mid = null
         }
       }
       d += 1
     } while (d < 3)
+
     if (currentDepth != 2 && bot != null)
       withComputedSizes(bot, currentDepth - 1)
 
@@ -1083,8 +1083,8 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   private def rebalancedLeafs[@sp B >: A](displayLeft: Array[B],
-                                          displayRight: Array[B],
-                                          isTop: Boolean): Node = {
+                                          displayRight: Array[B]
+                                         ): Node = {
     val leftLength = displayLeft.length
     val rightLength = displayRight.length
 
@@ -1099,23 +1099,20 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         System.arraycopy(displayLeft, 0, mergedDisplay, 0, leftLength)
         System.arraycopy(displayRight, 0, mergedDisplay, leftLength, rightLength)
 
-        if (isTop)
-          mergedDisplay
-        else {
-          val top = new Node(2)
-          top.update(0, mergedDisplay)
-          top
-        }
+        val top = new Node(2)
+        top.update(0, mergedDisplay)
+        top
       } else {
         val top = new Node(3)
-        val arr0 = new Node(32)
-        val arr1 = new Node(leftLength + rightLength - 32)
-        top.update(0, arr0)
-        top.update(1, arr1)
+        val arr0 = new Leaf(32)
+        val arr1 = new Leaf(leftLength + rightLength - 32)
 
         System.arraycopy(displayLeft, 0, arr0, 0, leftLength)
         System.arraycopy(displayRight, 0, arr0, leftLength, 32 - leftLength)
         System.arraycopy(displayRight, 32 - leftLength, arr1, 0, rightLength - 32 + leftLength)
+
+        top.update(0, arr0)
+        top.update(1, arr1)
         top
       }
     }
@@ -1189,7 +1186,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     branching
   }
 
-  private[immutable] def append[@sp B >: A](elem: B, _endIndex: Int): scala.Unit = {
+  private[immutable] def append[@sp B >: A](elem: B, _endIndex: Int): Unit = {
     if (focusStart.+(focus).^(_endIndex - 1) >= 32)
       normalizeAndFocusOn(_endIndex - 1)
 
@@ -1201,7 +1198,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   private def appendOnCurrentBlock[@sp B >: A](elem: B,
-                                               elemIndexInBlock: Int): scala.Unit = {
+                                               elemIndexInBlock: Int): Unit = {
     focusEnd = endIndex
     val d0 = new Leaf(elemIndexInBlock.+(1))
     System.arraycopy(display0, 0, d0, 0, elemIndexInBlock)
@@ -1211,7 +1208,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   private def appendBackNewBlock[@sp B >: A](elem: B,
-                                             elemIndexInBlock: Int): scala.Unit = {
+                                             elemIndexInBlock: Int): Unit = {
     val oldDepth = depth
     val newRelaxedIndex = endIndex.-(1).-(focusStart).+(focusRelax)
     val focusJoined = focus.|(focusRelax)
@@ -1283,7 +1280,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     transient = true
   }
 
-  private[Immutable] def makeTransientIfNeeded(): scala.Unit = {
+  private[Immutable] def makeTransientIfNeeded(): Unit = {
     val _depth = depth
     if (_depth > 1 && transient.`unary_!`) {
       copyDisplaysAndNullFocusedBranch(_depth, focus.|(focusRelax))
@@ -1297,7 +1294,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     resultVector
   }
 
-  private[Immutable] def normalizeAndFocusOn(index: Int): scala.Unit = {
+  private[Immutable] def normalizeAndFocusOn(index: Int): Unit = {
     if (transient) {
       normalize(depth)
       transient = false
@@ -1305,7 +1302,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     focusOn(index)
   }
 
-  private[immutable] def prepend[@sp B >: A](elem: B): scala.Unit = {
+  private[immutable] def prepend[@sp B >: A](elem: B): Unit = {
 
     if (focusStart.!=(0).||(focus.&(-32).!=(0)))
       normalizeAndFocusOn(0)
@@ -1318,7 +1315,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   private def prependOnCurrentBlock[@sp B >: A](elem: B,
-                                                oldD0: Array[B]): scala.Unit = {
+                                                oldD0: Array[B]): Unit = {
     val newLen = oldD0.length + 1
     focusEnd = newLen
     val newD0 = new Leaf(newLen)
@@ -1327,7 +1324,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     display0 = newD0
     makeTransientIfNeeded()
   }
-  private def prependFrontNewBlock[@sp B >: A](elem: B): scala.Unit = {
+  private def prependFrontNewBlock[@sp B >: A](elem: B): Unit = {
     var currentDepth = focusDepth
     if (currentDepth.==(1))
       currentDepth.+=(1)
@@ -1488,31 +1485,31 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       transient = false
     }
 
-    val vec = new Vector[A](this.endIndex.-(n))
+    val vec: Vector[A] = new Vector[A](this.endIndex - n)
 
     vec.initWithFocusFrom(this)
 
-    if (vec.depth.>(1)) {
+    if (vec.depth > 1) {
       vec.focusOn(n)
-      val cutIndex = vec.focus.|(vec.focusRelax)
-      val d0Start = cutIndex.&(31)
-      if (d0Start.!=(0)) {
-        val d0len = vec.display0.length.-(d0Start)
-        val d0 = new Leaf(d0len)
+      val cutIndex: Int = vec.focus.|(vec.focusRelax)
+      val d0Start: Int = cutIndex.&(31)
+      if (d0Start != 0){
+        val d0len: Int = vec.display0.length - d0Start
+        val d0: Leaf = new Leaf(d0len)
         System.arraycopy(vec.display0, d0Start, d0, 0, d0len)
         vec.display0 = d0
       }
 
       vec.cleanTopDrop(cutIndex)
 
-      if (vec.depth.>(1)) {
+      if (vec.depth > 1) {
         var i = 2
         var display = vec.display1
-        while (i.<=(vec.depth)) {
+        while (i <= vec.depth) {
           val splitStart = cutIndex >> 5.*(i-1).&(31)
-          val newLen = display.length.-(splitStart).-(1)
-          val newDisplay = new Node(newLen.+(1))
-          System.arraycopy(display, splitStart.+(1), newDisplay, 1, newLen.-(1))
+          val newLen = display.length - splitStart - 1
+          val newDisplay = new Node(newLen + 1)
+          System.arraycopy(display, splitStart + 1, newDisplay, 1, newLen - 1)
           i match {
             case 2 =>
               newDisplay.update(0, vec.display0)
