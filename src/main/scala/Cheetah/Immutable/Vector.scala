@@ -1048,12 +1048,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           }
         }
         if (iMid == 32) {
-          top.update(iTop,
-            if (currentDepth == 1)
-              withComputedSizes1(mid)
-            else
-              withComputedSizes(mid, currentDepth)
-          )
+          top.update(iTop, withComputedSizes(mid, currentDepth))
           iTop += 1
           iMid = 0
           val remainingBranches =
@@ -1074,11 +1069,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       withComputedSizes(bot, currentDepth - 1)
 
     if (mid != null)
-      top.update(iTop,
-        if (currentDepth == 1)
-          withComputedSizes1(mid)
-        else
-          withComputedSizes(mid, currentDepth))
+      top.update(iTop, withComputedSizes(mid, currentDepth))
     top
   }
 

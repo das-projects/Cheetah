@@ -11,11 +11,12 @@
             <option value="$PROJECT_DIR$/project" />
           </set>
         </option>
+        <option name="resolveSbtClassifiers" value="true" />
         <option name="sbtVersion" value="0.13.16" />
-        <option name="useAutoImport" value="true" />
-        <option name="useOurOwnAutoImport" value="true" />
         <option name="useSbtShell" value="true" />
       </SbtProjectSettings>
     </option>
+    <option name="maximumHeapSize" value="30720" />
+    <option name="vmParameters" value="-XX:+AggressiveOpts -XX:-UseParallelGC -XX:ParallelGCThreads=4" />
   </component>
 </project>
