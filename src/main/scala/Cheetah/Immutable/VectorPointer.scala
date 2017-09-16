@@ -1,11 +1,13 @@
 package Cheetah.Immutable
 
+import scala.reflect.ClassTag
 import scala.{specialized => sp}
 
 private[Immutable] trait VectorPointer[@sp A] {
 
   type Node = Array[AnyRef]
   type Leaf = Array[A]
+  type Size = Array[Int]
 
   final private[Immutable] var display0: Leaf = _
   final private[Immutable] var display1: Node = _
@@ -128,7 +130,7 @@ private[Immutable] trait VectorPointer[@sp A] {
     initFocus(0, 0, 1, 1, 0)
     val d0: Leaf = new Leaf(1)
     val d1: Node = new Node(3) // 3 since that is what other functions defined are doing
-    val size: Array[Int] = new Array[Int](1)
+    val size: Size = new Size(1)
 
     d0.update(0, elem)
     display0 = d0
@@ -180,7 +182,7 @@ private[Immutable] trait VectorPointer[@sp A] {
       case 7 => display7
     }
 
-    var sizes = display(display.length - 1).asInstanceOf[Array[Int]]
+    var sizes = display(display.length - 1).asInstanceOf[Size]
 
     do {
       val sizesIdx = getIndexInSizes(sizes, indexInSubTree)
@@ -189,7 +191,7 @@ private[Immutable] trait VectorPointer[@sp A] {
 
       display = display(sizesIdx).asInstanceOf[Node]
       if (currentDepth > 2)
-        sizes = display(display.length - 1).asInstanceOf[Array[Int]]
+        sizes = display(display.length - 1).asInstanceOf[Size]
       else
         sizes = null
       currentDepth -= 1
@@ -207,7 +209,7 @@ private[Immutable] trait VectorPointer[@sp A] {
     }
   }
 
-  @inline final private def getIndexInSizes(sizes: Array[Int],
+  @inline final private def getIndexInSizes(sizes: Size,
                                             indexInSubTree: Int): Int = {
 
     if (indexInSubTree == 0)
@@ -240,7 +242,7 @@ private[Immutable] trait VectorPointer[@sp A] {
       }
 
       do {
-        val sizes = display(display.length - 1).asInstanceOf[Array[Int]]
+        val sizes = display(display.length - 1).asInstanceOf[Size]
         if (sizes == null)
           continue = false
         else {
@@ -1130,57 +1132,41 @@ private[Immutable] trait VectorPointer[@sp A] {
 
   private[Immutable] def cleanTopTake(cutIndex: Int): Unit = {
     this.depth match {
-    case 2 =>
-      if ((cutIndex >> 5) == 0) {
-        display1 = null
-        this.depth = 1
-      } else
-        this.depth = 2
-    case 3 =>
-      if ((cutIndex >> 10) == 0) {
-        display2 = null
+
+      case 1 =>
         if ((cutIndex >> 5) == 0) {
           display1 = null
-          this.depth = 1
+          this.depth = 0
         } else
-          this.depth = 2
-      } else
-        this.depth = 3
-    case 4 =>
-      if ((cutIndex >> 15) == 0) {
-        display3 = null
+          this.depth = 1
+
+      case 2 =>
         if ((cutIndex >> 10) == 0) {
           display2 = null
           if ((cutIndex >> 5) == 0) {
             display1 = null
-            this.depth = 1
+            this.depth = 0
           } else
-            this.depth = 2
+            this.depth = 1
         } else
-          this.depth = 3
-      } else
-        this.depth = 4
-    case 5 =>
-      if ((cutIndex >> 20) == 0) {
-        display4 = null
+          this.depth = 2
+
+      case 3 =>
         if ((cutIndex >> 15) == 0) {
           display3 = null
           if ((cutIndex >> 10) == 0) {
             display2 = null
             if ((cutIndex >> 5) == 0) {
               display1 = null
-              this.depth = 1
+              this.depth = 0
             } else
-              this.depth = 2
+              this.depth = 1
           } else
-            this.depth = 3
+            this.depth = 2
         } else
-          this.depth = 4
-      } else
-        this.depth = 5
-    case 6 =>
-      if ((cutIndex >> 25) == 0) {
-        display5 = null
+          this.depth = 3
+
+      case 4 =>
         if ((cutIndex >> 20) == 0) {
           display4 = null
           if ((cutIndex >> 15) == 0) {
@@ -1189,20 +1175,17 @@ private[Immutable] trait VectorPointer[@sp A] {
               display2 = null
               if ((cutIndex >> 5) == 0) {
                 display1 = null
-                this.depth = 1
+                this.depth = 0
               } else
-                this.depth = 2
+                this.depth = 1
             } else
-              this.depth = 3
+              this.depth = 2
           } else
-            this.depth = 4
+            this.depth = 3
         } else
-          this.depth = 5
-      } else
-        this.depth = 6
-    case 7 =>
-      if ((cutIndex >> 30) == 0) {
-        display6 = null
+          this.depth = 4
+
+      case 5 =>
         if ((cutIndex >> 25) == 0) {
           display5 = null
           if ((cutIndex >> 20) == 0) {
@@ -1213,7 +1196,34 @@ private[Immutable] trait VectorPointer[@sp A] {
                 display2 = null
                 if ((cutIndex >> 5) == 0) {
                   display1 = null
+                  this.depth = 0
+                } else
                   this.depth = 1
+              } else
+                this.depth = 2
+            } else
+              this.depth = 3
+          } else
+            this.depth = 4
+        } else
+          this.depth = 5
+
+      case 6 =>
+        if ((cutIndex >> 30) == 0) {
+          display6 = null
+          if ((cutIndex >> 25) == 0) {
+            display5 = null
+            if ((cutIndex >> 20) == 0) {
+              display4 = null
+              if ((cutIndex >> 15) == 0) {
+                display3 = null
+                if ((cutIndex >> 10) == 0) {
+                  display2 = null
+                  if ((cutIndex >> 5) == 0) {
+                    display1 = null
+                    this.depth = 0
+                  } else
+                    this.depth = 1
                 } else
                   this.depth = 2
               } else
@@ -1224,63 +1234,77 @@ private[Immutable] trait VectorPointer[@sp A] {
             this.depth = 5
         } else
           this.depth = 6
-      } else
-        this.depth = 7
-  }
+
+      case 6 =>
+        if ((cutIndex >> 35) == 0) {
+          display7 = null
+          if ((cutIndex >> 30) == 0) {
+            display6 = null
+            if ((cutIndex >> 25) == 0) {
+              display5 = null
+              if ((cutIndex >> 20) == 0) {
+                display4 = null
+                if ((cutIndex >> 15) == 0) {
+                  display3 = null
+                  if ((cutIndex >> 10) == 0) {
+                    display2 = null
+                    if ((cutIndex >> 5) == 0) {
+                      display1 = null
+                      this.depth = 0
+                    } else
+                      this.depth = 1
+                  } else
+                    this.depth = 2
+                } else
+                  this.depth = 3
+              } else
+                this.depth = 4
+            } else
+              this.depth = 5
+          } else
+            this.depth = 6
+        } else
+          this.depth = 7
+    }
   }
 
-  private[Immutable] def cleanTopDrop(cutIndex: Int): Unit = this.depth match {
-    case 1 =>
-      if ((cutIndex >> 5) == (display1.length - 2)) {
-        display1 = null
-        this.depth = 1
-      } else
-        this.depth = 2
-    case 2 =>
-      if ((cutIndex >> 10) == (display2.length - 2)) {
-        display2 = null
+  private[Immutable] def cleanTopDrop(cutIndex: Int): Unit = {
+    this.depth match {
+
+      case 1 =>
         if ((cutIndex >> 5) == (display1.length - 2)) {
           display1 = null
-          this.depth = 1
+          this.depth = 0
         } else
-          this.depth = 2
-      } else
-        this.depth = 3
-    case 3 =>
-      if ((cutIndex >> 15) == (display3.length - 2)) {
-        display3 = null
+          this.depth = 1
+
+      case 2 =>
         if ((cutIndex >> 10) == (display2.length - 2)) {
           display2 = null
           if ((cutIndex >> 5) == (display1.length - 2)) {
             display1 = null
-            this.depth = 1
+            this.depth = 0
           } else
-            this.depth = 2
+            this.depth = 1
         } else
-          this.depth = 3
-      } else
-        this.depth = 4
-    case 4 =>
-      if ((cutIndex >> 20) == (display4.length - 2)) {
-        display4 = null
+          this.depth = 2
+
+      case 3 =>
         if ((cutIndex >> 15) == (display3.length - 2)) {
           display3 = null
           if ((cutIndex >> 10) == (display2.length - 2)) {
             display2 = null
             if ((cutIndex >> 5) == (display1.length - 2)) {
               display1 = null
-              this.depth = 1
+              this.depth = 0
             } else
-              this.depth = 2
+              this.depth = 1
           } else
-            this.depth = 3
+            this.depth = 2
         } else
-          this.depth = 4
-      } else
-        this.depth = 5
-    case 5 =>
-      if ((cutIndex >> 25) == (display5.length - 2)) {
-        display5 = null
+          this.depth = 3
+
+      case 4 =>
         if ((cutIndex >> 20) == (display4.length - 2)) {
           display4 = null
           if ((cutIndex >> 15) == (display3.length - 2)) {
@@ -1289,20 +1313,17 @@ private[Immutable] trait VectorPointer[@sp A] {
               display2 = null
               if ((cutIndex >> 5) == (display1.length - 2)) {
                 display1 = null
-                this.depth = 1
+                this.depth = 0
               } else
-                this.depth = 2
+                this.depth = 1
             } else
-              this.depth = 3
+              this.depth = 2
           } else
-            this.depth = 4
+            this.depth = 3
         } else
-          this.depth = 5
-      } else
-        this.depth = 6
-    case 6 =>
-      if ((cutIndex >> 30) == (display6.length - 2)) {
-        display6 = null
+          this.depth = 4
+
+      case 5 =>
         if ((cutIndex >> 25) == (display5.length - 2)) {
           display5 = null
           if ((cutIndex >> 20) == (display4.length - 2)) {
@@ -1313,7 +1334,34 @@ private[Immutable] trait VectorPointer[@sp A] {
                 display2 = null
                 if ((cutIndex >> 5) == (display1.length - 2)) {
                   display1 = null
+                  this.depth = 0
+                } else
                   this.depth = 1
+              } else
+                this.depth = 2
+            } else
+              this.depth = 3
+          } else
+            this.depth = 4
+        } else
+          this.depth = 5
+
+      case 6 =>
+        if ((cutIndex >> 30) == (display6.length - 2)) {
+          display6 = null
+          if ((cutIndex >> 25) == (display5.length - 2)) {
+            display5 = null
+            if ((cutIndex >> 20) == (display4.length - 2)) {
+              display4 = null
+              if ((cutIndex >> 15) == (display3.length - 2)) {
+                display3 = null
+                if ((cutIndex >> 10) == (display2.length - 2)) {
+                  display2 = null
+                  if ((cutIndex >> 5) == (display1.length - 2)) {
+                    display1 = null
+                    this.depth = 0
+                  } else
+                    this.depth = 1
                 } else
                   this.depth = 2
               } else
@@ -1324,8 +1372,38 @@ private[Immutable] trait VectorPointer[@sp A] {
             this.depth = 5
         } else
           this.depth = 6
-      } else
-        this.depth = 7
+
+      case 7 =>
+        if ((cutIndex >> 35) == (display7.length - 2)) {
+          display7 = null
+          if ((cutIndex >> 30) == (display6.length - 2)) {
+            display6 = null
+            if ((cutIndex >> 25) == (display5.length - 2)) {
+              display5 = null
+              if ((cutIndex >> 20) == (display4.length - 2)) {
+                display4 = null
+                if ((cutIndex >> 15) == (display3.length - 2)) {
+                  display3 = null
+                  if ((cutIndex >> 10) == (display2.length - 2)) {
+                    display2 = null
+                    if ((cutIndex >> 5) == (display1.length - 2)) {
+                      display1 = null
+                      this.depth = 0
+                    } else
+                      this.depth = 1
+                  } else
+                    this.depth = 2
+                } else
+                  this.depth = 3
+              } else
+                this.depth = 4
+            } else
+              this.depth = 5
+          } else
+            this.depth = 6
+        } else
+          this.depth = 7
+    }
   }
 
   final private[Immutable] def copyOf(array: Node): Node = {
@@ -1357,7 +1435,7 @@ private[Immutable] trait VectorPointer[@sp A] {
     val newArray: Node = new Node(len)
     System.arraycopy(array, 0, newArray, 0, len - 1)
     newArray.update(nullIndex, null)
-    val sizes: Array[Int] = array(len - 1).asInstanceOf[Array[Int]]
+    val sizes: Size = array(len - 1).asInstanceOf[Size]
     if (sizes != null)
       newArray.update(len - 1, makeTransientSizes(sizes, nullIndex))
     newArray
@@ -1368,10 +1446,10 @@ private[Immutable] trait VectorPointer[@sp A] {
     newRoot.update(0, node)
 
     val length: Int = node.length
-    val dSizes: Array[Int] = node(length - 1).asInstanceOf[Array[Int]]
+    val dSizes: Size = node(length - 1).asInstanceOf[Size]
 
     if (dSizes != null) {
-      val newRootSizes: Array[Int] = new Array[Int](2)
+      val newRootSizes: Size = new Size(2)
       val dSize: Int = dSizes(length - 2)
       newRootSizes.update(0, dSize)
       newRootSizes.update(1, dSize)
@@ -1383,7 +1461,7 @@ private[Immutable] trait VectorPointer[@sp A] {
   final private def makeNewRoot1(node: Node,
                                  currentDepth: Int): Node = {
     val dSize: Int = treeSize(node, currentDepth) // (currentDepth - 1)
-    val newRootSizes: Array[Int] = new Array[Int](2)
+    val newRootSizes: Size = new Size(2)
     newRootSizes.update(1, dSize)
     val newRoot: Node = new Node(3)
     newRoot.update(1, node)
@@ -1391,9 +1469,9 @@ private[Immutable] trait VectorPointer[@sp A] {
     newRoot
   }
 
-  final private[Immutable] def makeTransientSizes(oldSizes: Array[Int],
-                                                  transientBranchIndex: Int): Array[Int] = {
-    val newSizes: Array[Int] = new Array[Int](oldSizes.length)
+  final private[Immutable] def makeTransientSizes(oldSizes: Size,
+                                                  transientBranchIndex: Int): Size = {
+    val newSizes: Size = new Size(oldSizes.length)
     var delta: Int = oldSizes(transientBranchIndex)
     if (transientBranchIndex > 0) {
       delta -= oldSizes(transientBranchIndex - 1)
@@ -1415,9 +1493,9 @@ private[Immutable] trait VectorPointer[@sp A] {
                                         currentLevel: Int): Node = {
     val len: Int = node.length
     val newRoot: Node = copyOf(node, len - 1, len + 1)
-    val oldSizes: Array[Int] = node(len - 1).asInstanceOf[Array[Int]]
+    val oldSizes: Size = node(len - 1).asInstanceOf[Size]
     if (oldSizes != null) {
-      val newSizes: Array[Int] = new Array[Int](len)
+      val newSizes: Size = new Size(len)
       System.arraycopy(oldSizes, 0, newSizes, 0, len - 1)
       if (transient)
         newSizes.update(len - 1, 1 << (5 * currentLevel))
@@ -1435,8 +1513,8 @@ private[Immutable] trait VectorPointer[@sp A] {
     val newRoot: Node = new Node(length + 1)
     System.arraycopy(node, 0, newRoot, 1, length - 1)
 
-    val oldSizes: Array[Int] = node(length - 1).asInstanceOf[Array[Int]]
-    val newSizes: Array[Int] = new Array[Int](length)
+    val oldSizes: Size = node(length - 1).asInstanceOf[Size]
+    val newSizes: Size = new Size(length)
 
     if (oldSizes != null)
       if (transient)
@@ -1465,7 +1543,7 @@ private[Immutable] trait VectorPointer[@sp A] {
       val end = node.length - 1
   
       if (end > 1) {
-        val sizes = new Array[Int](end)
+        val sizes = new Size(end)
         while (i < end) {
           acc += node(i).asInstanceOf[Leaf].length
           sizes.update(i, acc)
@@ -1485,7 +1563,7 @@ private[Immutable] trait VectorPointer[@sp A] {
     val end = node.length - 1
 
     if (end > 1) {
-      val sizes = new Array[Int](end)
+      val sizes = new Size(end)
       if (currentDepth == 1)
         while (i < end) {
           acc += node(i).asInstanceOf[Leaf].length
@@ -1502,11 +1580,11 @@ private[Immutable] trait VectorPointer[@sp A] {
         node.update(end, sizes)
     } else if (end == 1 && currentDepth > 1) {
       val child = node(0).asInstanceOf[Node]
-      val childSizes = child(child.length - 1).asInstanceOf[Array[Int]]
+      val childSizes = child(child.length - 1).asInstanceOf[Size]
 
       if (childSizes != null)
         if (childSizes.length != 1) {
-          val sizes = new Array[Int](1)
+          val sizes = new Size(1)
           sizes.update(0, childSizes(childSizes.length - 1))
           node.update(end, sizes)
         } else
@@ -1519,10 +1597,10 @@ private[Immutable] trait VectorPointer[@sp A] {
                                         currentDepth: Int,
                                         branchToUpdate: Int): Node = {
     val end: Int = node.length - 1
-    val oldSizes: Array[Int] = node(end).asInstanceOf[Array[Int]]
+    val oldSizes: Size = node(end).asInstanceOf[Size]
 
     if (oldSizes != null) {
-      val newSizes: Array[Int] = new Array[Int](end)
+      val newSizes: Size = new Size(end)
       val delta: Int =
         if (currentDepth == 1)
           node(branchToUpdate).asInstanceOf[Leaf].length
@@ -1545,7 +1623,7 @@ private[Immutable] trait VectorPointer[@sp A] {
   }
 
   @inline final private def notBalanced(node: Node,
-                                        sizes: Array[Int],
+                                        sizes: Size,
                                         currentDepth: Int,
                                         end: Int): Boolean = {
 
@@ -1560,7 +1638,7 @@ private[Immutable] trait VectorPointer[@sp A] {
   private def treeSize(tree: Node, currentDepth: Int): Int = {
     @scala.annotation.tailrec
     def treeSizeRec(node: Node, currentDepth: Int, acc: Int): Int = {
-      val treeSizes: Array[Int] = node(node.length - 1).asInstanceOf[Array[Int]]
+      val treeSizes: Size = node(node.length - 1).asInstanceOf[Size]
       if (treeSizes != null)
         acc + treeSizes(treeSizes.length - 1)
       else {

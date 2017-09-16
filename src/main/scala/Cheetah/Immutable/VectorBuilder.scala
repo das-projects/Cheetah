@@ -2,25 +2,22 @@ package Cheetah.Immutable
 
 import scala.annotation.tailrec
 import scala.annotation.unchecked.uncheckedVariance
-import scala.collection.{TraversableLike, mutable}
+import scala.collection.mutable
 import scala.{specialized => sp}
-import scala.{Vector => Vec}
-
 
 final class VectorBuilder[@sp A]
   extends mutable.Builder[A, Vector[A]]
-    with VectorPointer[A @uncheckedVariance] {
+    with VectorPointer[A@uncheckedVariance] {
 
   display0 = new Leaf(32)
   display1 = new Node(33)
-  display1.update(0,display0) // TODO Understand implications
+  display1.update(0, display0)
+  display1 = withComputedSizes(display1, 1)
   depth = 1
 
   private var blockIndex: Int = 0
   private var lo: Int = 0
   private var acc: Vector[A] = _
-
-  //def finalise: Vector[A] = result
 
   def +=(elem: A): VectorBuilder[A] = {
     if (lo >= 32) {
@@ -41,6 +38,7 @@ final class VectorBuilder[@sp A]
         loopVector(xs.tail)
       }
     }
+
     if (xs.nonEmpty)
       xs match {
         case thatVec: Vector[A] =>
@@ -98,7 +96,7 @@ final class VectorBuilder[@sp A]
       resultVector.initFrom(this)
       resultVector.display0 = copyOf(resultVector.display0, lo, lo)
       val _depth = depth
-      if (_depth > 1) {
+      if (_depth >= 1) {
         resultVector.copyDisplays(_depth, size - 1)
         resultVector.stabilizeDisplayPath(_depth, size - 1)
       }
@@ -109,26 +107,20 @@ final class VectorBuilder[@sp A]
   }
 
   private def clearCurrent(): Unit = {
+
     display0 = new Leaf(32)
-    display1 = _
+    display1 = new Node(33)
     display2 = _
     display3 = _
     display4 = _
     display5 = _
     display6 = _
     display7 = _
+
+    display1.update(0, display0)
+    display1 = withComputedSizes(display1, 1)
     depth = 1
     blockIndex = 0
     lo = 0
   }
-
-  override def sizeHint(size: Int): Unit = super.sizeHint(size)
-
-  override def sizeHint(coll: TraversableLike[_, _]): Unit = super.sizeHint(coll)
-
-  override def sizeHint(coll: TraversableLike[_, _], delta: Int): Unit = super.sizeHint(coll, delta)
-
-  override def sizeHintBounded(size: Int, boundingColl: TraversableLike[_, _]): Unit = super.sizeHintBounded(size, boundingColl)
-
-  override def mapResult[NewTo](f: (Vector[A]) => NewTo): mutable.Builder[A, NewTo] = super.mapResult(f)
 }

@@ -6,7 +6,7 @@ import scala.{specialized => sp}
 class VectorIterator[@sp +A](startIndex: Int,
                              override private[Immutable] val endIndex: Int)
   extends Iterator[A]
-    with VectorPointer[A @uncheckedVariance] {
+    with VectorPointer[A@uncheckedVariance] {
 
   /*Index in the vector of the first element of the current block, i.e. current display0 */
   private var blockIndex: Int = _

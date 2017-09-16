@@ -16,7 +16,7 @@ class VectorReverseIterator[@sp +A](startIndex: Int,
   private var _hasNext: Boolean = startIndex < endIndex
 
   final private[Immutable] def initIteratorFrom[@sp B >: A](that: VectorPointer[B]): Unit = {
-    initWithFocusFrom(that)
+    initWithFocusFrom(that.asInstanceOf[VectorPointer[A]])
     _hasNext = startIndex < endIndex
     if (_hasNext) {
       val idx = endIndex - 1

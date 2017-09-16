@@ -1,6 +1,6 @@
 package Cheetah.Immutable
 
-import Cheetah.Immutable.Vector.{Coll, ReusableCBF}
+//import Cheetah.Immutable.Vector.{Coll, ReusableCBF}
 
 import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.generic.{CanBuildFrom, FilterMonadic, GenericCompanion, IndexedSeqFactory}
@@ -1401,72 +1401,72 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       transient = false
     }
 
-    val vec = new Vector[A](n)
+    val vector = new Vector[A](n)
 
-    vec.initWithFocusFrom(this)
+    vector.initWithFocusFrom(this)
 
     if (depth > 1) {
-      vec.focusOn(n - 1)
-      val d0len = vec.focus.&(31).+(1)
+      vector.focusOn(n - 1)
+      val d0len = (vector.focus & 31) + 1
       if (d0len != 32) {
         val d0 = new Leaf(d0len)
-        System.arraycopy(vec.display0, 0, d0, 0, d0len)
-        vec.display0 = d0
+        System.arraycopy(vector.display0, 0, d0, 0, d0len)
+        vector.display0 = d0
       }
 
-      val cutIndex = vec.focus.|(vec.focusRelax)
-      vec.cleanTopTake(cutIndex)
-      vec.focusDepth = math.min(vec.depth, vec.focusDepth)
+      val cutIndex = vector.focus | vector.focusRelax
+      vector.cleanTopTake(cutIndex)
+      vector.focusDepth = spire.math.min(vector.depth, vector.focusDepth)
 
-      if (vec.depth > 1) {
-        vec.copyDisplays(vec.focusDepth, cutIndex)
-        var i = vec.depth
+      if (vector.depth > 1) {
+        vector.copyDisplays(vector.focusDepth, cutIndex)
+        var i = vector.depth
         var offset = 0
         var display: Node = null
 
-        while (i > vec.focusDepth) {
+        while (i > vector.focusDepth) {
           i match {
-            case 2 => display = vec.display1
-            case 3 => display = vec.display2
-            case 4 => display = vec.display3
-            case 5 => display = vec.display4
-            case 6 => display = vec.display5
-            case 7 => display = vec.display6
+            case 2 => display = vector.display1
+            case 3 => display = vector.display2
+            case 4 => display = vector.display3
+            case 5 => display = vector.display4
+            case 6 => display = vector.display5
+            case 7 => display = vector.display6
           }
-          val oldSizes = display(display.length.-(1))
-            .asInstanceOf[Array[Int]]
-          val newLen = vec.focusRelax.>>((5).*(i.-(1))).&(31).+(1)
+          val oldSizes = display(display.length - 1).asInstanceOf[Array[Int]]
+          val newLen = (vector.focusRelax >> 5 * (i - 1) & 31) + 1
           val newSizes = new Array[Int](newLen)
-          System.arraycopy(oldSizes, 0, newSizes, 0, newLen.-(1))
-          newSizes.update(newLen.-(1), n.-(offset))
-          if (newLen.>(1))
-            offset.+=(newSizes(newLen.-(2)))
+          System.arraycopy(oldSizes, 0, newSizes, 0, newLen - 1)
+          newSizes.update(newLen - 1, n - offset)
+          if (newLen > 1)
+            offset += newSizes(newLen - 2)
 
-          val newDisplay = new Node(newLen.+(1))
+          val newDisplay = new Node(newLen + 1)
           System.arraycopy(display, 0, newDisplay, 0, newLen)
-          newDisplay.update(newLen.-(1), null)
+          newDisplay.update(newLen - 1, null)
           newDisplay.update(newLen, newSizes)
           i match {
-            case 2 => vec.display1 = newDisplay
-            case 3 => vec.display2 = newDisplay
-            case 4 => vec.display3 = newDisplay
-            case 5 => vec.display4 = newDisplay
-            case 6 => vec.display5 = newDisplay
-            case 7 => vec.display6 = newDisplay
+            case 1 => vector.display1 = newDisplay
+            case 2 => vector.display2 = newDisplay
+            case 3 => vector.display3 = newDisplay
+            case 4 => vector.display4 = newDisplay
+            case 5 => vector.display5 = newDisplay
+            case 6 => vector.display6 = newDisplay
+            case 7 => vector.display7 = newDisplay
           }
           i -= 1
         }
-        vec.stabilizeDisplayPath(vec.depth, cutIndex)
-        vec.focusEnd = n
+        vector.stabilizeDisplayPath(vector.depth, cutIndex)
+        vector.focusEnd = n
       } else
-        vec.focusEnd = n
+        vector.focusEnd = n
     } else if (n != 32) {
       val d0 = new Leaf(n)
-      System.arraycopy(vec.display0, 0, d0, 0, n)
-      vec.display0 = d0
-      vec.initFocus(0, 0, n, 1, 0)
+      System.arraycopy(vector.display0, 0, d0, 0, n)
+      vector.display0 = d0
+      vector.initFocus(0, 0, n, 1, 0)
     }
-    vec
+    vector
   }
 
   private def dropFront0(n: Int): Vector[A] = {
@@ -1482,8 +1482,8 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
 
     if (vec.depth > 1) {
       vec.focusOn(n)
-      val cutIndex: Int = vec.focus.|(vec.focusRelax)
-      val d0Start: Int = cutIndex.&(31)
+      val cutIndex: Int = vec.focus | vec.focusRelax
+      val d0Start: Int = cutIndex & 31
       if (d0Start != 0){
         val d0len: Int = vec.display0.length - d0Start
         val d0: Leaf = new Leaf(d0len)
@@ -1497,7 +1497,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
         var i = 2
         var display = vec.display1
         while (i <= vec.depth) {
-          val splitStart = cutIndex >> 5.*(i-1).&(31)
+          val splitStart = cutIndex >> 5 * (i - 1) & 31
           val newLen = display.length - splitStart - 1
           val newDisplay = new Node(newLen + 1)
           System.arraycopy(display, splitStart + 1, newDisplay, 1, newLen - 1)
