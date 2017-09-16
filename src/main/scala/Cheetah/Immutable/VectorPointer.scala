@@ -656,15 +656,13 @@ private[Immutable] trait VectorPointer[@sp A] {
   final private[Immutable] def gotoNextBlockStartWritable(index: Int,
                                                           xor: Int): Unit = {
     if (xor < (1 << 10)) {
-      if (depth == 1) {
-        display1 = new Node(33)
-        display1.update(0, display0)
-        depth += 1
-      }
+
       display0 = new Leaf(32)
       display1.update(index >> 5 & 31, display0)
+
     } else if (xor < (1 << 15)) {
-      if (depth == 2) {
+
+      if (depth == 1) {
         display2 = new Node(33)
         display2.update(0, display1)
         depth += 1
@@ -673,8 +671,10 @@ private[Immutable] trait VectorPointer[@sp A] {
       display1 = new Node(33)
       display1.update(index >> 5 & 31, display0)
       display2.update(index >> 10 & 31, display1)
+
     } else if (xor < (1 << 20)) {
-      if (depth == 3) {
+
+      if (depth == 2) {
         display3 = new Node(33)
         display3.update(0, display2)
         depth += 1
@@ -685,8 +685,10 @@ private[Immutable] trait VectorPointer[@sp A] {
       display1.update(index >> 5 & 31, display0)
       display2.update(index >> 10 & 31, display1)
       display3.update(index >> 15 & 31, display2)
+
     } else if (xor < (1 << 25)) {
-      if (depth == 4) {
+
+      if (depth == 3) {
         display4 = new Node(33)
         display4.update(0, display3)
         depth += 1
@@ -699,8 +701,10 @@ private[Immutable] trait VectorPointer[@sp A] {
       display2.update(index >> 10 & 31, display1)
       display3.update(index >> 15 & 31, display2)
       display4.update(index >> 20 & 31, display3)
+
     } else if (xor < (1 << 30)) {
-      if (depth == 5) {
+
+      if (depth == 4) {
         display5 = new Node(33)
         display5.update(0, display4)
         depth += 1
@@ -715,8 +719,10 @@ private[Immutable] trait VectorPointer[@sp A] {
       display3.update(index >> 15 & 31, display2)
       display4.update(index >> 20 & 31, display3)
       display5.update(index >> 25 & 31, display4)
+
     } else if (xor < (1 << 35)) {
-      if (depth == 6) {
+
+      if (depth == 5) {
         display6 = new Node(33)
         display6.update(0, display5)
         depth += 1
@@ -733,6 +739,29 @@ private[Immutable] trait VectorPointer[@sp A] {
       display4.update(index >> 20 & 31, display3)
       display5.update(index >> 25 & 31, display4)
       display6.update(index >> 30 & 31, display5)
+
+    } else if (xor < (1 << 40)) {
+
+      if (depth == 6) {
+        display7 = new Node(33)
+        display7.update(0, display6)
+        depth += 1
+      }
+      display0 = new Leaf(32)
+      display1 = new Node(33)
+      display2 = new Node(33)
+      display3 = new Node(33)
+      display4 = new Node(33)
+      display5 = new Node(33)
+      display6 = new Node(33)
+      display1.update(index >> 5 & 31, display0)
+      display2.update(index >> 10 & 31, display1)
+      display3.update(index >> 15 & 31, display2)
+      display4.update(index >> 20 & 31, display3)
+      display5.update(index >> 25 & 31, display4)
+      display6.update(index >> 30 & 31, display5)
+      display7.update(index >> 35 & 31, display6)
+
     } else
       throw new IllegalArgumentException()
   }
@@ -753,40 +782,46 @@ private[Immutable] trait VectorPointer[@sp A] {
         case 4 => display4
         case 5 => display5
         case 6 => display6
+        case 7 => display7
       }
       do {
         val newDisplay: Node = copyOf(display)
-        val idx: Int = stabilizationIndex >> (5 * currentLevel) & 31
+        val index: Int = stabilizationIndex >> (5 * currentLevel) & 31
         currentLevel match {
+
           case 1 =>
-            newDisplay.update(idx, display0)
-            display1 = withRecomputedSizes(newDisplay, 2, idx)
+            newDisplay.update(index, display0)
+            display1 = withRecomputedSizes(newDisplay, 1, index)
             display = display2
 
           case 2 =>
-            newDisplay.update(idx, display1)
-            display2 = withRecomputedSizes(newDisplay, 3, idx)
+            newDisplay.update(index, display1)
+            display2 = withRecomputedSizes(newDisplay, 2, index)
             display = display3
 
           case 3 =>
-            newDisplay.update(idx, display2)
-            display3 = withRecomputedSizes(newDisplay, 4, idx)
+            newDisplay.update(index, display2)
+            display3 = withRecomputedSizes(newDisplay, 3, index)
             display = display4
 
           case 4 =>
-            newDisplay.update(idx, display3)
-            display4 = withRecomputedSizes(newDisplay, 5, idx)
+            newDisplay.update(index, display3)
+            display4 = withRecomputedSizes(newDisplay, 4, index)
             display = display5
 
           case 5 =>
-            newDisplay.update(idx, display4)
-            display5 = withRecomputedSizes(newDisplay, 6, idx)
+            newDisplay.update(index, display4)
+            display5 = withRecomputedSizes(newDisplay, 5, index)
             display = display6
 
           case 6 =>
-            newDisplay.update(idx, display5)
-            display6 = withRecomputedSizes(newDisplay, 7, idx)
+            newDisplay.update(index, display5)
+            display6 = withRecomputedSizes(newDisplay, 6, index)
             display = display7
+
+          case 7 =>
+            newDisplay.update(index, display6)
+            display7 = withRecomputedSizes(newDisplay, 7, index)
 
         }
         currentLevel += 1
@@ -795,12 +830,16 @@ private[Immutable] trait VectorPointer[@sp A] {
   }
 
   final private[Immutable] def copyDisplays(_depth: Int, _focus: Int): Unit = {
-    if (2 <= _depth) {
-      if (3 <= _depth) {
-        if (4 <= _depth) {
-          if (5 <= _depth) {
-            if (6 <= _depth) {
-              if (7 <= _depth) {
+    if (1 <= _depth) {
+      if (2 <= _depth) {
+        if (3 <= _depth) {
+          if (4 <= _depth) {
+            if (5 <= _depth) {
+              if (6 <= _depth) {
+                if (7 <= _depth) {
+                  val idx7 = _focus >> 35 & 31 + 1
+                  display7 = copyOf(display7, idx7, idx7 + 1)
+                }
                 val idx6 = _focus >> 30 & 31 + 1
                 display6 = copyOf(display6, idx6, idx6 + 1)
               }
@@ -823,21 +862,31 @@ private[Immutable] trait VectorPointer[@sp A] {
 
   final private[Immutable] def copyDisplaysAndNullFocusedBranch(_depth: Int,
                                                                 _focus: Int): Unit = _depth match {
-    case 2 => display1 = copyOfAndNull(display1, _focus >> 5 & 31)
+    // can also be written using if statements like the previous function CopyDisplays
+    case 1 =>
+      display1 = copyOfAndNull(display1, _focus >> 5 & 31)
+
+    case 2 =>
+      display1 = copyOfAndNull(display1, _focus >> 5 & 31)
+      display2 = copyOfAndNull(display2, _focus >> 10 & 31)
+
     case 3 =>
       display1 = copyOfAndNull(display1, _focus >> 5 & 31)
       display2 = copyOfAndNull(display2, _focus >> 10 & 31)
+      display3 = copyOfAndNull(display3, _focus >> 15 & 31)
 
     case 4 =>
       display1 = copyOfAndNull(display1, _focus >> 5 & 31)
       display2 = copyOfAndNull(display2, _focus >> 10 & 31)
       display3 = copyOfAndNull(display3, _focus >> 15 & 31)
+      display4 = copyOfAndNull(display4, _focus >> 20 & 31)
 
     case 5 =>
       display1 = copyOfAndNull(display1, _focus >> 5 & 31)
       display2 = copyOfAndNull(display2, _focus >> 10 & 31)
       display3 = copyOfAndNull(display3, _focus >> 15 & 31)
       display4 = copyOfAndNull(display4, _focus >> 20 & 31)
+      display5 = copyOfAndNull(display5, _focus >> 25 & 31)
 
     case 6 =>
       display1 = copyOfAndNull(display1, _focus >> 5 & 31)
@@ -845,6 +894,7 @@ private[Immutable] trait VectorPointer[@sp A] {
       display3 = copyOfAndNull(display3, _focus >> 15 & 31)
       display4 = copyOfAndNull(display4, _focus >> 20 & 31)
       display5 = copyOfAndNull(display5, _focus >> 25 & 31)
+      display6 = copyOfAndNull(display6, _focus >> 30 & 31)
 
     case 7 =>
       display1 = copyOfAndNull(display1, _focus >> 5 & 31)
@@ -853,16 +903,24 @@ private[Immutable] trait VectorPointer[@sp A] {
       display4 = copyOfAndNull(display4, _focus >> 20 & 31)
       display5 = copyOfAndNull(display5, _focus >> 25 & 31)
       display6 = copyOfAndNull(display6, _focus >> 30 & 31)
+      display7 = copyOfAndNull(display7, _focus >> 35 & 31)
 
   }
 
   final private[Immutable] def copyDisplaysAndStabilizeDisplayPath(_depth: Int,
                                                                    _focus: Int): Unit = _depth match {
-    case 1 => ()
+    case 1 =>
+      val d1: Node = copyOf(display1)
+      d1.update(_focus >> 5 & 31, display0)
+      display1 = d1
+
     case 2 =>
       val d1: Node = copyOf(display1)
       d1.update(_focus >> 5 & 31, display0)
       display1 = d1
+      val d2: Node = copyOf(display2)
+      d2.update(_focus >> 10 & 31, d1)
+      display2 = d2
 
     case 3 =>
       val d1: Node = copyOf(display1)
@@ -871,6 +929,9 @@ private[Immutable] trait VectorPointer[@sp A] {
       val d2: Node = copyOf(display2)
       d2.update(_focus >> 10 & 31, d1)
       display2 = d2
+      val d3: Node = copyOf(display3)
+      d3.update(_focus >> 15 & 31, d2)
+      display3 = d3
 
     case 4 =>
       val d1: Node = copyOf(display1)
@@ -882,6 +943,9 @@ private[Immutable] trait VectorPointer[@sp A] {
       val d3: Node = copyOf(display3)
       d3.update(_focus >> 15 & 31, d2)
       display3 = d3
+      val d4: Node = copyOf(display4)
+      d4.update(_focus >> 20 & 31, d3)
+      display4 = d4
 
     case 5 =>
       val d1: Node = copyOf(display1)
@@ -896,6 +960,9 @@ private[Immutable] trait VectorPointer[@sp A] {
       val d4: Node = copyOf(display4)
       d4.update(_focus >> 20 & 31, d3)
       display4 = d4
+      val d5: Node = copyOf(display5)
+      d5.update(_focus >> 25 & 31, d4)
+      display5 = d5
 
     case 6 =>
       val d1: Node = copyOf(display1)
@@ -913,6 +980,9 @@ private[Immutable] trait VectorPointer[@sp A] {
       val d5: Node = copyOf(display5)
       d5.update(_focus >> 25 & 31, d4)
       display5 = d5
+      val d6: Node = copyOf(display6)
+      d6.update(_focus >> 30 & 31, d5)
+      display6 = d6
 
     case 7 =>
       val d1: Node = copyOf(display1)
@@ -933,33 +1003,48 @@ private[Immutable] trait VectorPointer[@sp A] {
       val d6: Node = copyOf(display6)
       d6.update(_focus >> 30 & 31, d5)
       display6 = d6
+      val d7: Node = copyOf(display7)
+      d7.update(_focus >> 35 & 31, d6)
+      display7 = d7
 
   }
 
   final private[Immutable] def copyDisplaysTop(currentDepth: Int,
                                                _focusRelax: Int): Unit = {
     var _currentDepth = currentDepth
-    while (_currentDepth.<(this.depth)) {
+    while (_currentDepth < this.depth) {
       _currentDepth match {
-        case 2 =>
+
+        case 1 =>
           val cutIndex = _focusRelax >> 5 & 31
           display1 = copyOf(display1, cutIndex + 1, cutIndex + 2)
-        case 3 =>
+
+        case 2 =>
           val cutIndex = _focusRelax >> 10 & 31
           display2 = copyOf(display2, cutIndex + 1, cutIndex + 2)
-        case 4 =>
+
+        case 3 =>
           val cutIndex = _focusRelax >> 15 & 31
           display3 = copyOf(display3, cutIndex + 1, cutIndex + 2)
-        case 5 =>
+
+        case 4 =>
           val cutIndex = _focusRelax >> 20 & 31
           display4 = copyOf(display4, cutIndex + 1, cutIndex + 2)
-        case 6 =>
+
+        case 5 =>
           val cutIndex = _focusRelax >> 25 & 31
           display5 = copyOf(display5, cutIndex + 1, cutIndex + 2)
-        case 7 =>
+
+        case 6 =>
           val cutIndex = _focusRelax >> 30 & 31
           display6 = copyOf(display6, cutIndex + 1, cutIndex + 2)
+
+        case 7 =>
+          val cutIndex = _focusRelax >> 35 & 31
+          display7 = copyOf(display7, cutIndex + 1, cutIndex + 2)
+
         case _ => throw new IllegalStateException()
+
       }
       _currentDepth += 1
     }
@@ -967,30 +1052,84 @@ private[Immutable] trait VectorPointer[@sp A] {
   }
 
   final private[Immutable] def stabilizeDisplayPath(_depth: Int,
-                                                    _focus: Int): Unit = if (1 < _depth) {
-    val d1 = display1
-    d1.update(_focus >> 5 & 31, display0)
-    if (2 < _depth) {
-      val d2 = display2
-      d2.update(_focus >> 10 & 31, d1)
-      if (3 < _depth) {
+                                                    _focus: Int): Unit = {
+    _depth match {
+
+      case 1 =>
+        val d1 = display1
+        d1.update(_focus >> 5 & 31, display0)
+
+      case 2 =>
+        val d1 = display1
+        d1.update(_focus >> 5 & 31, display0)
+        val d2 = display2
+        d2.update(_focus >> 10 & 31, d1)
+
+      case 3 =>
+        val d1 = display1
+        d1.update(_focus >> 5 & 31, display0)
+        val d2 = display2
+        d2.update(_focus >> 10 & 31, d1)
         val d3 = display3
         d3.update(_focus >> 15 & 31, d2)
-        if (4 < _depth) {
-          val d4 = display4
-          d4.update(_focus >> 20 & 31, d3)
-          if (5 < _depth) {
-            val d5 = display5
-            d5.update(_focus >> 25 & 31, d4)
-            if (_depth == 7)
-              display6.update(_focus >> 30 & 31, d5)
-          }
-        }
-      }
+
+      case 4 =>
+        val d1 = display1
+        d1.update(_focus >> 5 & 31, display0)
+        val d2 = display2
+        d2.update(_focus >> 10 & 31, d1)
+        val d3 = display3
+        d3.update(_focus >> 15 & 31, d2)
+        val d4 = display4
+        d4.update(_focus >> 20 & 31, d3)
+
+      case 5 =>
+        val d1 = display1
+        d1.update(_focus >> 5 & 31, display0)
+        val d2 = display2
+        d2.update(_focus >> 10 & 31, d1)
+        val d3 = display3
+        d3.update(_focus >> 15 & 31, d2)
+        val d4 = display4
+        d4.update(_focus >> 20 & 31, d3)
+        val d5 = display5
+        d5.update(_focus >> 25 & 31, d4)
+
+      case 6 =>
+        val d1 = display1
+        d1.update(_focus >> 5 & 31, display0)
+        val d2 = display2
+        d2.update(_focus >> 10 & 31, d1)
+        val d3 = display3
+        d3.update(_focus >> 15 & 31, d2)
+        val d4 = display4
+        d4.update(_focus >> 20 & 31, d3)
+        val d5 = display5
+        d5.update(_focus >> 25 & 31, d4)
+        val d6 = display6
+        d6.update(_focus >> 30 & 31, d5)
+
+      case 7 =>
+        val d1 = display1
+        d1.update(_focus >> 5 & 31, display0)
+        val d2 = display2
+        d2.update(_focus >> 10 & 31, d1)
+        val d3 = display3
+        d3.update(_focus >> 15 & 31, d2)
+        val d4 = display4
+        d4.update(_focus >> 20 & 31, d3)
+        val d5 = display5
+        d5.update(_focus >> 25 & 31, d4)
+        val d6 = display6
+        d6.update(_focus >> 30 & 31, d5)
+        val d7 = display7
+        d7.update(_focus >> 35 & 31, d6)
+
     }
   }
 
-  private[Immutable] def cleanTopTake(cutIndex: Int): Unit = this.depth match {
+  private[Immutable] def cleanTopTake(cutIndex: Int): Unit = {
+    this.depth match {
     case 2 =>
       if ((cutIndex >> 5) == 0) {
         display1 = null
@@ -1087,6 +1226,7 @@ private[Immutable] trait VectorPointer[@sp A] {
           this.depth = 6
       } else
         this.depth = 7
+  }
   }
 
   private[Immutable] def cleanTopDrop(cutIndex: Int): Unit = this.depth match {
