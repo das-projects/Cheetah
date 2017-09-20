@@ -29,6 +29,9 @@ class VectorReverseIterator[@sp +A](startIndex: Int,
       lo = 0
       endLo = 0
       display0 = new Leaf(1)
+      display1 = new Node(3)
+      display1.update(0, display0)
+      display1 = withComputedSizes(display1, 1)
     }
   }
 

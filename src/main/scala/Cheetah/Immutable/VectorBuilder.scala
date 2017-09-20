@@ -3,9 +3,10 @@ package Cheetah.Immutable
 import scala.annotation.tailrec
 import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.mutable
+import scala.reflect.ClassTag
 import scala.{specialized => sp}
 
-final class VectorBuilder[@sp A]
+final class VectorBuilder[@sp A](implicit val ct: ClassTag[A])
   extends mutable.Builder[A, Vector[A]]
     with VectorPointer[A@uncheckedVariance] {
 
@@ -110,12 +111,12 @@ final class VectorBuilder[@sp A]
 
     display0 = new Leaf(32)
     display1 = new Node(33)
-    display2 = _
-    display3 = _
-    display4 = _
-    display5 = _
-    display6 = _
-    display7 = _
+    display2 = null
+    display3 = null
+    display4 = null
+    display5 = null
+    display6 = null
+    display7 = null
 
     display1.update(0, display0)
     display1 = withComputedSizes(display1, 1)

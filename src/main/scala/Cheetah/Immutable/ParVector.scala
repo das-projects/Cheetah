@@ -1,9 +1,11 @@
 package Cheetah.Immutable
 
-import scala.collection.generic.{CanCombineFrom, GenericParTemplate, ParFactory}
+import scala.collection.{GenIterable, GenSeq, GenTraversableOnce}
+import scala.collection.generic.{CanBuildFrom, CanCombineFrom, GenericParTemplate, ParFactory}
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.parallel.{Combiner, ParSeqLike, SeqSplitter}
 import scala.collection.parallel.immutable.ParSeq
+import scala.reflect.ClassTag
 import scala.{specialized => sp}
 import scala.{Vector => Vec}
 
@@ -12,6 +14,38 @@ class ParVector[@sp +A](vector: Vector[A])
     with GenericParTemplate[A, ParVector]
     with ParSeqLike[A, ParVector[A], Vector[A]]
     with Serializable {
+
+  override def reverseMap[B, That](f: (A) => B)(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def patch[B >: A, That](from: Int, patch: GenSeq[B], replaced: Int)(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def updated[B >: A, That](index: Int, elem: B)(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def +:[B >: A, That](elem: B)(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def :+[B >: A, That](elem: B)(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def padTo[B >: A, That](len: Int, elem: B)(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def zip[A1 >: A, B, That](that: GenIterable[B])(implicit bf: CanBuildFrom[ParVector[A], (A1, B), That]) = ???
+
+  override def zipWithIndex[A1 >: A, That](implicit bf: CanBuildFrom[ParVector[A], (A1, Int), That]) = ???
+
+  override def zipAll[B, A1 >: A, That](that: GenIterable[B], thisElem: A1, thatElem: B)(implicit bf: CanBuildFrom[ParVector[A], (A1, B), That]) = ???
+
+  override def scan[B >: A, That](z: B)(op: (B, B) => B)(implicit cbf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def scanLeft[B, That](z: B)(op: (B, A) => B)(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def scanRight[B, That](z: B)(op: (A, B) => B)(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def map[B, That](f: (A) => B)(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def collect[B, That](pf: PartialFunction[A, B])(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def flatMap[B, That](f: (A) => GenTraversableOnce[B])(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
+
+  override def ++[B >: A, That](that: GenTraversableOnce[B])(implicit bf: CanBuildFrom[ParVector[A], B, That]) = ???
 
   override def companion = ParVector
 
@@ -32,7 +66,7 @@ class ParVector[@sp +A](vector: Vector[A])
 
   override def seq: Vector[A] = vector
 
-  override def toVector: Vector[A] = vector.toVector
+  //override def toVector: Vector[A] = vector.toVector
 
   class ParVectorIterator(_start: Int, _end: Int)
     extends VectorIterator[A](_start, _end)
@@ -77,12 +111,12 @@ class ParVector[@sp +A](vector: Vector[A])
     def psplit(sizes: Int*): Seq[ParVectorIterator] = {
       val splitted = new ArrayBuffer[ParVectorIterator]()
       var currentPos = _end.-(remaining)
-      sizes.foreach(((sz) => {
+      sizes.foreach((sz) => {
         val pit = new ParVectorIterator(currentPos, currentPos.+(sz))
         pit.initIteratorFrom(this)
-        splitted.+=(pit)
-        currentPos.+=(sz)
-      }))
+        splitted += pit
+        currentPos += sz
+      })
       splitted
     }
   }
@@ -97,20 +131,21 @@ object ParVector extends ParFactory[ParVector] {
     new ParVectorCombinator[A]()
 }
 
-private[Immutable] class ParVectorCombinator[A]
+private[Immutable] class ParVectorCombinator[A : ClassTag]
   extends Combiner[A, ParVector[A]] {
   val builder: VectorBuilder[A] =
     new VectorBuilder[A]()
-  override def size = builder.endIndex
+  override def size: Int = builder.endIndex
   override def result() =
     new ParVector[A](builder.result())
-  override def clear() = builder.clear()
-  override def +=(elem: A) = {
-    builder.+=(elem)
+  override def clear(): Unit = builder.clear()
+
+  override def +=(elem: A): ParVectorCombinator[A] = {
+    builder += elem
     this
   }
-  override def ++=(xs: TraversableOnce[A]) = {
-    builder.++=(xs)
+  override def ++=(xs: TraversableOnce[A]): ParVectorCombinator.this.type = {
+    builder ++= xs
     this
   }
   def combine[B <: A, NewTo >: ParVector[A]](
@@ -119,12 +154,12 @@ private[Immutable] class ParVectorCombinator[A]
       this
     else {
       val newCombiner = new ParVectorCombinator[A]()
-      newCombiner.++=(this.builder.result())
-      newCombiner.++=(
+      newCombiner ++= this.builder.result()
+      newCombiner ++=
         other
           .asInstanceOf[ParVectorCombinator[A]]
           .builder
-          .result())
+          .result()
       newCombiner
     }
 }

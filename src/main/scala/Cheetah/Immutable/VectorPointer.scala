@@ -125,7 +125,7 @@ private[Immutable] trait VectorPointer[@sp A] {
     focusOn(0)
   }
 
-  final private[Immutable] def initSingleton(elem: A): Unit = {
+  final private[Immutable] def initSingleton(elem: A)(implicit m: ClassTag[A]): Unit = {
     // TODO Need to check for correctness: Seems Fine
     initFocus(0, 0, 1, 1, 0)
     val d0: Leaf = new Leaf(1)
@@ -276,7 +276,7 @@ private[Immutable] trait VectorPointer[@sp A] {
   }
 
   final private[Immutable] def setupNewBlockInNextBranch(xor: Int,
-                                                         transient: Boolean): Unit = {
+                                                         transient: Boolean)(implicit m: ClassTag[A]): Unit = {
     if (xor < (1 << 10)) {
 
       if (transient) normalize(1)
@@ -423,7 +423,7 @@ private[Immutable] trait VectorPointer[@sp A] {
   }
 
   final private[Immutable] def setupNewBlockInInitBranch(insertionDepth: Int,
-                                                         transient: Boolean): Unit = insertionDepth match {
+                                                         transient: Boolean)(implicit m: ClassTag[A]): Unit = insertionDepth match {
     case 1 =>
 
       if (transient) normalize(1)
@@ -656,7 +656,7 @@ private[Immutable] trait VectorPointer[@sp A] {
   }
 
   final private[Immutable] def gotoNextBlockStartWritable(index: Int,
-                                                          xor: Int): Unit = {
+                                                          xor: Int)(implicit m: ClassTag[A]): Unit = {
     if (xor < (1 << 10)) {
 
       display0 = new Leaf(32)
@@ -1423,7 +1423,7 @@ private[Immutable] trait VectorPointer[@sp A] {
 
   final private[Immutable] def copyOf(array: Leaf,
                                       numElements: Int,
-                                      newSize: Int): Leaf = {
+                                      newSize: Int)(implicit m: ClassTag[A]): Leaf = {
     val newArray: Leaf = new Leaf(newSize)
     System.arraycopy(array, 0, newArray, 0, numElements)
     newArray

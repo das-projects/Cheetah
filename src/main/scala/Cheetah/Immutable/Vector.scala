@@ -2,20 +2,26 @@ package Cheetah.Immutable
 
 //import Cheetah.Immutable.Vector.{Coll, ReusableCBF}
 
+import Cheetah.Immutable
+
 import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.generic.{CanBuildFrom, FilterMonadic, GenericCompanion, IndexedSeqFactory}
 import scala.collection.parallel.{Combiner, ParIterable}
-import scala.collection.{GenIterable, GenTraversableOnce, IndexedSeqLike, IterableLike, IterableView, Iterator, Traversable, TraversableLike, breakOut, immutable, mutable}
+import scala.collection.{GenIterable, GenTraversableOnce, IndexedSeqLike, Iterable, IterableLike, IterableView, Iterator, Traversable, TraversableLike, breakOut, immutable, mutable}
 import scala.reflect.ClassTag
 import scala.{specialized => sp}
 import scala.{Vector => Vec}
+import spire.syntax.all._
+
+import scala.collection.mutable.ArrayBuffer
+import scala.language.higherKinds
 
 object Vector extends scala.collection.generic.IndexedSeqFactory[Vector] {
 
-  def newBuilder[A]: mutable.Builder[A, Vector[A]] =
+  def newBuilder[@sp A]: mutable.Builder[A, Vector[A]] =
     new VectorBuilder[A]()
 
-  implicit def canBuildFrom[A]
+  implicit def canBuildFrom[@sp A: ClassTag]
     : scala.collection.generic.CanBuildFrom[Coll, A, Vector[A]] =
       ReusableCBF.asInstanceOf[GenericCanBuildFrom[A]]
 
@@ -23,28 +29,24 @@ object Vector extends scala.collection.generic.IndexedSeqFactory[Vector] {
 
   override def empty[A]: Vector[A] = EMPTY_VECTOR
 
-  final lazy private[immutable] val emptyTransientBlock = new Array[AnyRef](2)
+  final lazy private[Immutable] val emptyTransientBlock = new Array[AnyRef](2)
 }
 
 
-final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
+final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implicit ct: ClassTag[A])
   extends Traversable[A]
     with TraversableLike[A, Vector[A]]
     with Iterable[A]
     with IndexedSeqFactory[Vector]
     with IterableLike[A, Vector[A]]
-    with VectorBuilder[A]
     with VectorPointer[A @uncheckedVariance]
     with Serializable { self =>
 
   private[Immutable] var transient: Boolean = false
 
-  def newBuilder[@sp B >: A]: mutable.Builder[B, Vector[B]] =
-    new VectorBuilder[B]()
+  def newBuilder[@sp B >: A]: VectorBuilder[B] = new VectorBuilder[B]()
 
-  implicit def canBuildFrom[@sp B >: A]
-  : scala.collection.generic.CanBuildFrom[Coll, B, Vector[B]] =
-    ReusableCBF.asInstanceOf[GenericCanBuildFrom[B]]
+  implicit def canBuildFrom[@sp B >: A]: scala.collection.generic.CanBuildFrom[Coll, B, Vector[B]] = ReusableCBF.asInstanceOf[GenericCanBuildFrom[B]]
 
   lazy private val EMPTY_VECTOR = new Vector[Nothing](0)
 
@@ -95,7 +97,8 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     rit
   }
 
-  override def ++[@sp B >: A, @sp That](that: GenTraversableOnce[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
+  def ++[@sp B >: A : ClassTag, @sp That](that: GenTraversableOnce[B])
+                                         (implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
 
     if (bf.eq(IndexedSeq.ReusableCBF)) {
         if (that.isEmpty)
@@ -112,14 +115,14 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
               newVec.asInstanceOf[That]
             }
           case _ =>
-            val b: mutable.Builder[B, Vector[B]] = newBuilder[B] // TODO Make sure this is working at it is supposed to
+            val b: VectorBuilder[B] = newBuilder[B] // TODO Make sure this is working at it is supposed to
             if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
             b ++= thisCollection
             b ++= that.seq
             b.result.asInstanceOf[That]
         }
       } else {
-      val b: mutable.Builder[B, Vector[B]] = newBuilder[B]
+      val b: VectorBuilder[B] = newBuilder[B]
       if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
       b ++= thisCollection
       b ++= that.seq
@@ -127,23 +130,25 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     }
   }
 
-  override def ++:[@sp B >: A, @sp That](that: TraversableOnce[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    val b: mutable.Builder[B, Vector[B]] = newBuilder[B]
+  def ++:[@sp B >: A, @sp That](that: TraversableOnce[B])
+                               (implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
+    val b: VectorBuilder[B] = newBuilder[B]
     if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
     b ++= that
     b ++= thisCollection
     b.result.asInstanceOf[That]
   }
 
-  override def ++:[@sp B >: A, @sp That](that: Traversable[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = (that ++ this)(breakOut)
+  def ++:[@sp B >: A : ClassTag, @sp That](that: Traversable[B])
+                                          (implicit bf: CanBuildFrom[Vector[A], B, That]): That = (that ++ this)(breakOut)
 
   // Append
-  def :+[@sp B >: A, That](elem: B)(
-    implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
+  def :+[@sp B >: A, That](elem: B)
+                          (implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
     if (bf.eq(IndexedSeq.ReusableCBF)) {
       val _endIndex = this.endIndex
       if (_endIndex != 0) {
-        val resultVector = new Vector[B](_endIndex + 1)
+        val resultVector: Vector[B] = new Vector[B](_endIndex + 1)
         resultVector.transient = this.transient
         resultVector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
         resultVector.append(elem, _endIndex)
@@ -151,16 +156,16 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       } else
         createSingletonVector(elem).asInstanceOf[That]
     } else {
-      val b = bf(repr)
+      val b: VectorBuilder[B] = newBuilder[B]
       b ++= thisCollection
       b += elem
-      b.result()
+      b.result.asInstanceOf[That]
     }
   }
 
   // Prepend
-  def +:[@sp B >: A, That](elem: B)(
-    implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
+  def +:[@sp B >: A, That](elem: B)
+                          (implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
     if (bf.eq(IndexedSeq.ReusableCBF)) {
       val _endIndex = this.endIndex
       if (_endIndex != 0) {
@@ -172,10 +177,10 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       } else
         createSingletonVector(elem).asInstanceOf[That]
     } else {
-      val b = bf(repr)
+      val b: VectorBuilder[B] = newBuilder[B]
       b += elem
       b ++= thisCollection
-      b.result()
+      b.result.asInstanceOf[That]
     }
   }
 
@@ -183,82 +188,88 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   * Map Like Operations
   * */
 
-  def foreach[@sp B](f: (A) => B): Unit // TODO Implement in the object and optimize using C++/CUDA via JavaCPP
+  override def foreach[@sp B](f: (A) => B): Unit =
+    cfor(0)(_ < endIndex, _ + 1) { i:Int => f(this(i)) } // TODO Implement in the object and optimize using C++/CUDA via JavaCPP
 
-  override def map[@sp B >: A, @sp That](f: (A) => B)(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    val b = newBuilder[B]
+  def map[@sp B >: A, @sp That](f: (A) => B)
+                               (implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
+    val b: VectorBuilder[B] = newBuilder[B]
     for(x <- this) b += f(x)
     b.result.asInstanceOf[That]
   }
 
-  override def flatMap[@sp B >: A, @sp That](f: (A) => GenTraversableOnce[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    def builder = bf(repr) // extracted to keep method size under 35 bytes, so that it can be JIT-inlined
-    val b = builder // Is mapping and then building the structure one at a time faster than first allocating space and then mapping
+  override def flatMap[@sp B >: A, @sp That](f: (A) => GenTraversableOnce[B])
+                                            (implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
+    def builder: VectorBuilder[B] = newBuilder[B] // extracted to keep method size under 35 bytes, so that it can be JIT-inlined
+    val b: VectorBuilder[B] = builder // Is mapping and then building the structure one at a time faster than first allocating space and then mapping
     for (x <- this) b ++= f(x).seq // Sugared form of foreach
-    b.result
+    b.result.asInstanceOf[That]
   }
 
   override def filter(p: (A) => Boolean): Vector[A] = {
-    val b = newBuilder[A]
+    val b: VectorBuilder[A] = newBuilder[A]
     for (x <- this)
       if (p(x)) b += x // Sugared form of foreach
     b.result
   }
 
   override def filterNot(p: (A) => Boolean): Vector[A] = {
-    val b = newBuilder[A]
-    for (x <- this)
-      if (!p(x)) b += x // Sugared form of foreach
+    val b: VectorBuilder[A] = newBuilder[A]
+    for (x <- this) if (!p(x)) b += x // Sugared form of foreach
     b.result
   }
 
-  override def collect[@sp B >: A, @sp That](pf: PartialFunction[A, B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    val b = newBuilder[B]
+  def collect[@sp B >: A, @sp That](pf: PartialFunction[A, B])(implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
+    val b: VectorBuilder[B] = newBuilder[B]
     foreach(pf.runWith(b += _)) // Understand what a partial function
     b.result.asInstanceOf[That]
   }
 
   override def partition(p: (A) => Boolean): (Vector[A], Vector[A]) = {
-    val l, r = newBuilder[A]
+    val l: VectorBuilder[A] = newBuilder[A]
+    val r: VectorBuilder[A] = newBuilder[A]
     for (x <- this) (if (p(x)) l else r) += x // Sugared form of foreach
     (l.result, r.result)
   }
 
-  override def groupBy[@sp K](f: (A) => K): Map[K, Vector[A]] =  {
-    val m = mutable.Map.empty[K, VectorBuilder[A]]
+  def groupBy[@sp K](f: (A) => K)(implicit ct: ClassTag[K]): Map[K, Vector[A]] =  { // TODO Convert to vectorbuilder
+    val m: mutable.Map[K, VectorBuilder[A]] = mutable.Map.empty
     for (elem <- this) {
-      val key = f(elem)
-      val bldr = m.getOrElseUpdate(key, newBuilder[A])
-      bldr += elem
+      val key: K = f(elem)
+      val builder: VectorBuilder[A] = m.getOrElseUpdate(key, newBuilder[A])
+      builder += elem
     }
-    val b = immutable.Map.newBuilder[K, Vector[A]]
+    val b: mutable.Builder[(K, Vector[A]), Map[K, Vector[A]]] = immutable.Map.newBuilder[K, Vector[A]]
     for ((k, v) <- m)
       b += ((k, v.result))
 
     b.result
   }
 
-  override def scan[@sp B >: A, That](z: B)(op: (B, B) => B)(implicit cbf: CanBuildFrom[Vector[A], B, That]): That = scanLeft(z)(op)
+  override def scan[@sp B >: A, That](z: B)(op: (B, B) => B)
+                                     (implicit cbf: CanBuildFrom[Vector[A], B, That]): That = scanLeft(z)(op)
 
-  override def scanLeft[B, That](z: B)(op: (B, A) => B)(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    val b = bf(repr)
+  override def scanLeft[@sp B >: A, That](z: B)(op: (B, A) => B)
+                                         (implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
+    val b: VectorBuilder[B] = newBuilder[B]
     b.sizeHint(this, 1)
-    var acc = z
+    var acc: B = z
     b += acc
     for (x <- this) { acc = op(acc, x); b += acc } // Sugared form of foreach
-    b.result
+    b.result.asInstanceOf[That]
   }
 
-  override def scanRight[B, That](z: B)(op: (A, B) => B)(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
+  override def scanRight[@sp B >: A, That](z: B)(op: (A, B) => B)
+                                          (implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
     var scanned = List(z) // TODO Maybe another data structure would be useful here and if the two for loops can be reduced to one
-    var acc = z
+    var acc: B = z
     for (x <- reversed) { // Sugared form of foreach
       acc = op(x, acc)
       scanned ::= acc
     }
-    val b = bf(repr)
+    val b: VectorBuilder[B] = newBuilder[B]
     for (elem <- scanned) b += elem // Sugared form of foreach
-    b.result
+    b.result.asInstanceOf[That]
   }
 
   override def headOption: Option[A] = if (isEmpty) None else Some(head)
@@ -284,8 +295,8 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   /*Methods from TransferableLike */
 
   override def dropWhile(p: (A) => Boolean): Vector[A] = {
-    val b = newBuilder
-    var go = false
+    val b: VectorBuilder[A] = newBuilder[A]
+    var go: Boolean = false
     for (x <- this) {
       if (!go && !p(x)) go = true
       if (go) b += x
@@ -294,10 +305,10 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   override def span(p: (A) => Boolean): (Vector[A], Vector[A]) = {
-    val l, r = newBuilder
-    var toLeft = true
+    val l = newBuilder
+    val r = newBuilder
+    val toLeft: Boolean = true
     for (x <- this) (if (toLeft && p(x)) l else r) += x
-
     (l.result, r.result)
   }
 
@@ -306,14 +317,14 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   private def iterateUntilEmpty(f: Iterable[A @uncheckedVariance] => Iterable[A @uncheckedVariance]): Iterator[Vector[A]] = {
     val it = Iterator.iterate(thisCollection)(f) takeWhile (x => x.nonEmpty)
     it ++ Iterator(Nil) map (x => (newBuilder ++= x).result)
-  }  // TODO Need to fix
+  }
 
   override def tails: Iterator[Vector[A]] = iterateUntilEmpty(_.tail)
 
   override def inits: Iterator[Vector[A]] = iterateUntilEmpty(_.init)
 
-  override def to[Vector[_]](implicit cbf: CanBuildFrom[Nothing, A, Vector[A @uncheckedVariance]]): Vector[A @uncheckedVariance] = {
-    val b = cbf()
+  def to[Vector[_]]: Immutable.Vector[A] = {
+    val b: VectorBuilder[A] = newBuilder[A]
     b.sizeHint(this)
     b ++= thisCollection
     b.result
@@ -386,125 +397,32 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     result
   }
 
-  override def withFilter(p: (A) => Boolean): FilterMonadic[A, Vector[A]] = new WithFilter(p)
-
-  class WithFilter(p: A => Boolean) extends FilterMonadic[A, Vector[A]] {
-
-    /** Builds a new collection by applying a function to all elements of the
-      *  outer $coll containing this `WithFilter` instance that satisfy predicate `p`.
-      *
-      *  @param f      the function to apply to each element.
-      *  @tparam B     the element type of the returned collection.
-      *  @tparam That  $thatinfo
-      *  @param bf     $bfinfo
-      *  @return       a new collection of type `That` resulting from applying
-      *                the given function `f` to each element of the outer $coll
-      *                that satisfies predicate `p` and collecting the results.
-      *
-      *  @usecase def map[B](f: A => B): $Coll[B]
-      *    @inheritdoc
-      *
-      *    @return       a new $coll resulting from applying the given function
-      *                  `f` to each element of the outer $coll that satisfies
-      *                  predicate `p` and collecting the results.
-      */
-    def map[B, That](f: A => B)(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-      val b = bf(repr)
-      for (x <- self)
-        if (p(x)) b += f(x)
-      b.result
-    }
-
-    /** Builds a new collection by applying a function to all elements of the
-      *  outer $coll containing this `WithFilter` instance that satisfy
-      *  predicate `p` and concatenating the results.
-      *
-      *  @param f      the function to apply to each element.
-      *  @tparam B     the element type of the returned collection.
-      *  @tparam That  $thatinfo
-      *  @param bf     $bfinfo
-      *  @return       a new collection of type `That` resulting from applying
-      *                the given collection-valued function `f` to each element
-      *                of the outer $coll that satisfies predicate `p` and
-      *                concatenating the results.
-      *
-      *  @usecase def flatMap[B](f: A => TraversableOnce[B]): $Coll[B]
-      *    @inheritdoc
-      *
-      *    The type of the resulting collection will be guided by the static type
-      *    of the outer $coll.
-      *
-      *    @return       a new $coll resulting from applying the given
-      *                  collection-valued function `f` to each element of the
-      *                  outer $coll that satisfies predicate `p` and concatenating
-      *                  the results.
-      */
-    def flatMap[B, That](f: A => GenTraversableOnce[B])(implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-      val b = bf(repr)
-      for (x <- self)
-        if (p(x)) b ++= f(x).seq
-      b.result
-    }
-
-    /** Applies a function `f` to all elements of the outer $coll containing
-      *  this `WithFilter` instance that satisfy predicate `p`.
-      *
-      *  @param  f   the function that is applied for its side-effect to every element.
-      *              The result of function `f` is discarded.
-      *
-      *  @tparam  U  the type parameter describing the result of function `f`.
-      *              This result will always be ignored. Typically `U` is `Unit`,
-      *              but this is not necessary.
-      *
-      *  @usecase def foreach(f: A => Unit): Unit
-      *    @inheritdoc
-      */
-    def foreach[U](f: A => U): Unit =
-      for (x <- self)
-        if (p(x)) f(x)
-
-    /** Further refines the filter for this $coll.
-      *
-      *  @param q   the predicate used to test elements.
-      *  @return    an object of class `WithFilter`, which supports
-      *             `map`, `flatMap`, `foreach`, and `withFilter` operations.
-      *             All these operations apply to those elements of this $coll which
-      *             satisfy the predicate `q` in addition to the predicate `p`.
-      */
-    def withFilter(q: A => Boolean): WithFilter =
-      new WithFilter(x => p(x) && q(x))
-  } // TODO Check the relevance of this class and if it can merged with other functions in the Vector class
-
   /*Methods from Iterable */
 
- // override def companion: scala.collection.generic.GenericCompanion[Vector] = Vector // TODO NOT SURE
+  override def companion: scala.collection.generic.GenericCompanion[Vector] = Vector // TODO NOT SURE
 
-  override def seq: Iterable[A] = super.seq // TODO NOT SURE
+  //override def seq: Iterable[A] = super.seq // TODO NOT SURE
 
 
   /*Methods from IterableLike */
 
-  protected[this] override def thisCollection: Iterable[A] = super.thisCollection
+  protected[this] override def thisCollection: Iterable[A] = this.asInstanceOf[Iterable[A]]
 
-  protected[this] override def toCollection(repr: Vector[A]): Iterable[A] = super.toCollection(repr)
+  protected[this] override def toCollection(repr: Vector[A]): Iterable[A] = repr.asInstanceOf[Iterable[A]]
 
-  override def foreach[U](f: (A) => U): Unit = super.foreach(f)
+  override def forall(p: (A) => Boolean): Boolean = iterator.forall(p)
 
-  override def forall(p: (A) => Boolean): Boolean = super.forall(p)
+  override def exists(p: (A) => Boolean): Boolean = iterator.exists(p)
 
-  override def exists(p: (A) => Boolean): Boolean = super.exists(p)
-
-  override def find(p: (A) => Boolean): Option[A] = super.find(p)
+  override def find(p: (A) => Boolean): Option[A] = iterator.find(p)
 
   override def isEmpty: Boolean = this.endIndex == 0
 
-  override def foldRight[B](z: B)(op: (A, B) => B): B = super.foldRight(z)(op)
+  override def foldRight[B](z: B)(op: (A, B) => B): B = iterator.foldRight(z)(op)
 
-  override def reduceRight[B >: A](op: (A, B) => B): B = super.reduceRight(op)
+  override def reduceRight[B >: A](op: (A, B) => B): B = iterator.reduceRight(op)
 
-  override def toIterable: Iterable[A] = super.toIterable
-
-  override def toIterator: Iterator[A] = super.toIterator
+  //override def toIterable: Iterable[A] = iterator.toIterable
 
   override def head: A = {
     if (this.endIndex != 0)
@@ -512,7 +430,6 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     else
       throw new UnsupportedOperationException("empty.head")
   }
-
 
   override def slice(from: Int, until: Int): Vector[A] = take(until).drop(from)
 
@@ -534,13 +451,32 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       Vector.empty
   }
 
-  override def takeWhile(p: (A) => Boolean): Vector[A] = super.takeWhile(p)
+  override def takeWhile(p: (A) => Boolean): Vector[A] = {
+    val b: VectorBuilder[A] = newBuilder
+    val it: VectorIterator[A] = iterator
+    while (it.hasNext) {
+      val x = it.next()
+      if (!p(x)) return b.result
+      b += x
+    }
+    b.result
+  }
 
-  override def grouped(size: Int): Iterator[Vector[A]] = super.grouped(size)
+  override def grouped(size: Int): Iterator[Vector[A]] =
+    for (xs <- iterator grouped size) yield {
+    val b: VectorBuilder[A] = newBuilder
+    b ++= xs
+    b.result
+  }
 
-  override def sliding(size: Int): Iterator[Vector[A]] = super.sliding(size)
+  override def sliding(size: Int): Iterator[Vector[A]] = sliding(size, 1)
 
-  override def sliding(size: Int, step: Int): Iterator[Vector[A]] = super.sliding(size, step)
+  override def sliding(size: Int, step: Int): Iterator[Vector[A]] =
+    for (xs <- iterator.sliding(size, step)) yield {
+    val b: VectorBuilder[A] = newBuilder
+    b ++= xs
+    b.result
+  }
 
   override def takeRight(n: Int): Vector[A] = {
     if (n <= 0)
@@ -560,117 +496,237 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       Vector.empty
   }
 
-  override def copyToArray[@sp B >: A](xs: Array[B], start: Int, len: Int): Unit = super.copyToArray(xs, start, len)
+  override def zip[A1 >: A, B, That](that: GenIterable[B])(implicit bf: CanBuildFrom[Vector[A], (A1, B), That]): That = {
+    val b: mutable.Builder[(A1, B), That] = bf(repr)
+    val these: VectorIterator[A] = this.iterator
+    val those: Iterator[B] = that.iterator
+    while (these.hasNext && those.hasNext)
+      b += ((these.next(), those.next()))
+    b.result
+  }
 
-  override def zip[A1 >: A, B, That](that: GenIterable[B])(implicit bf: CanBuildFrom[Vector[A], (A1, B), That]): That = super.zip(that)
+  override def zipAll[B, A1 >: A, That](that: GenIterable[B], thisElem: A1, thatElem: B)(implicit bf: CanBuildFrom[Vector[A], (A1, B), That]): That = {
+    val b: mutable.Builder[(A1, B), That] = bf(repr)
+    val these: VectorIterator[A] = this.iterator
+    val those: Iterator[B] = that.iterator
+    while (these.hasNext && those.hasNext)
+      b += ((these.next(), those.next()))
+    while (these.hasNext)
+      b += ((these.next(), thatElem))
+    while (those.hasNext)
+      b += ((thisElem, those.next()))
+    b.result()
+  }
+  override def zipWithIndex[A1 >: A, That](implicit bf: CanBuildFrom[Vector[A], (A1, Int), That]): That = {
+    val b: mutable.Builder[(A1, Int), That] = bf(repr)
+    var i: Int = 0
+    for (x <- this) {
+      b += ((x, i))
+      i += 1
+    }
+    b.result
+  }
 
-  override def zipAll[B, A1 >: A, That](that: GenIterable[B], thisElem: A1, thatElem: B)(implicit bf: CanBuildFrom[Vector[A], (A1, B), That]): That = super.zipAll(that, thisElem, thatElem)
+  override def sameElements[@sp B >: A](that: GenIterable[B]): Boolean = {
+    val these: VectorIterator[A] = this.iterator
+    val those: Iterator[B] = that.iterator
+    while (these.hasNext && those.hasNext)
+      if (these.next != those.next)
+        return false
 
-  override def zipWithIndex[A1 >: A, That](implicit bf: CanBuildFrom[Vector[A], (A1, Int), That]): That = super.zipWithIndex
+    !these.hasNext && !those.hasNext
+  }
 
-  override def sameElements[B >: A](that: GenIterable[B]): Boolean = super.sameElements(that)
+  override def toStream: Stream[A] = iterator.toStream // TODO use fs2
 
-  override def toStream: Stream[A] = super.toStream
-
-  override def canEqual(that: Any): Boolean = super.canEqual(that)
-
-  override def view: AnyRef with IterableView[A, Vector[A]] = super.view
-
-  override def view(from: Int, until: Int): IterableView[A, Vector[A]] = super.view(from, until)
+  override def view(from: Int, until: Int): IterableView[A, Vector[A]] = view.slice(from, until)
 
   /*Methods from GenericTraversableTemplate */
 
-  override def genericBuilder[B]: mutable.Builder[B, Iterable[B]] = super.genericBuilder
+  override def genericBuilder[@sp B]: mutable.Builder[B, Iterable[B]] = companion.newBuilder[B]
 
-  override def unzip[A1, A2](implicit asPair: (A) => (A1, A2)): (Iterable[A1], Iterable[A2]) = super.unzip
+  private def sequential: TraversableOnce[A] = this.asInstanceOf[GenTraversableOnce[A]].seq
 
-  override def unzip3[A1, A2, A3](implicit asTriple: (A) => (A1, A2, A3)): (Iterable[A1], Iterable[A2], Iterable[A3]) = super.unzip3
+  override def unzip[@sp A1, @sp A2](implicit asPair: A => (A1, A2)): (Vector[A1], Vector[A2]) = {
+    val b1 = newBuilder[A1]
+    val b2 = newBuilder[A2]
+    for (xy <- sequential) {
+      val (x, y) = asPair(xy)
+      b1 += x
+      b2 += y
+    }
+    (b1.result, b2.result)
+  }
 
-  override def flatten[B](implicit asTraversable: (A) => GenTraversableOnce[B]): Iterable[B] = super.flatten
+  override def flatten[B](implicit asTraversable: (A) => GenTraversableOnce[B]): Iterable[B] = {
+    val b: mutable.Builder[B, Iterable[B]] = newBuilder[B]
+    for (xs <- sequential)
+      b ++= asTraversable(xs).seq
+    b.result
+  }
 
-  override def transpose[B](implicit asTraversable: (A) => GenTraversableOnce[B]): Iterable[Iterable[B]] = super.transpose
+  override def transpose[@sp B](implicit asTraversable: A => GenTraversableOnce[B]): Vector[Vector[B] @uncheckedVariance] = {
+    if (isEmpty)
+      return newBuilder[Vector[B]].result()
 
-  override protected[this] def reversed: List[A] = super.reversed
+    def fail: Nothing = throw new IllegalArgumentException("transpose requires all collections have the same size")
 
-  override def nonEmpty: Boolean = super.nonEmpty
+    val headSize: Int = asTraversable(head).size
+    val bs: IndexedSeq[mutable.Builder[B, Vector[B]]] = IndexedSeq.fill(headSize)(newBuilder[B])
+    for (xs <- sequential) {
+      var i: Int = 0
+      for (x <- asTraversable(xs).seq) {
+        if (i >= headSize) fail
+        bs(i) += x
+        i += 1
+      }
+      if (i != headSize)
+        fail
+    }
+    val bb: VectorBuilder[Vector[B]] = newBuilder[Vector[B]]
+    for (b <- bs) bb += b.result
+    bb.result
+  }
 
-  override def count(p: (A) => Boolean): Int = super.count(p)
+  override def count(p: (A) => Boolean): Int = {
+    var count = 0
+    for (x <- this)
+      if (p(x)) count += 1
+    count
+  }
 
-  override def collectFirst[B](pf: PartialFunction[A, B]): Option[B] = super.collectFirst(pf)
+  override def /:[B](z: B)(op: (B, A) => B): B = foldLeft(z)(op)
 
-  override def /:[B](z: B)(op: (B, A) => B): B = super./:(z)(op)
+  override def :\[B](z: B)(op: (A, B) => B): B = foldRight(z)(op)
 
-  override def :\[B](z: B)(op: (A, B) => B): B = super.:\(z)(op)
+  override def foldLeft[B](z: B)(op: (B, A) => B): B = {
+    var result: B = z
+    this foreach (x => result = op(result, x))
+    result
+  }
 
-  override def foldLeft[B](z: B)(op: (B, A) => B): B = super.foldLeft(z)(op)
+  override def reduceLeft[B >: A](op: (B, A) => B): B = {
+    if (isEmpty)
+      throw new UnsupportedOperationException("empty.reduceLeft")
 
-  override def reduceLeft[B >: A](op: (B, A) => B): B = super.reduceLeft(op)
+    var first = true
+    var acc: B = 0.asInstanceOf[B]
 
-  override def reduceLeftOption[B >: A](op: (B, A) => B): Option[B] = super.reduceLeftOption(op)
+    for (x <- self) {
+      if (first) {
+        acc = x
+        first = false
+      }
+      else acc = op(acc, x)
+    }
+    acc
+  }
 
-  override def reduceRightOption[B >: A](op: (A, B) => B): Option[B] = super.reduceRightOption(op)
+  override def reduceLeftOption[B >: A](op: (B, A) => B): Option[B] = if (isEmpty) None else Some(reduceLeft(op))
 
-  override def reduce[A1 >: A](op: (A1, A1) => A1): A1 = super.reduce(op)
+  override def reduceRightOption[B >: A](op: (A, B) => B): Option[B] = if (isEmpty) None else Some(reduceRight(op))
 
-  override def reduceOption[A1 >: A](op: (A1, A1) => A1): Option[A1] = super.reduceOption(op)
+  override def reduce[A1 >: A](op: (A1, A1) => A1): A1 = reduceLeft(op)
 
-  override def fold[A1 >: A](z: A1)(op: (A1, A1) => A1): A1 = super.fold(z)(op)
+  override def reduceOption[A1 >: A](op: (A1, A1) => A1): Option[A1] = reduceLeftOption(op)
 
-  override def aggregate[B](z: => B)(seqop: (B, A) => B, combop: (B, B) => B): B = super.aggregate(z)(seqop, combop)
+  override def fold[A1 >: A](z: A1)(op: (A1, A1) => A1): A1 = foldLeft(z)(op)
 
-  override def sum[B >: A](implicit num: Numeric[B]): B = super.sum
+  override def aggregate[B](z: => B)(seqop: (B, A) => B, combop: (B, B) => B): B = foldLeft(z)(seqop)
 
-  override def product[B >: A](implicit num: Numeric[B]): B = super.product
+  override def sum[B >: A](implicit num: Numeric[B]): B = foldLeft(num.zero)(num.plus)
 
-  override def min[B >: A](implicit cmp: Ordering[B]): A = super.min
+  override def product[B >: A](implicit num: Numeric[B]): B = foldLeft(num.one)(num.times)
 
-  override def max[B >: A](implicit cmp: Ordering[B]): A = super.max
+  override def min[B >: A](implicit cmp: Ordering[B]): A = {
+    if (isEmpty)
+      throw new UnsupportedOperationException("empty.min")
 
-  override def maxBy[B](f: (A) => B)(implicit cmp: Ordering[B]): A = super.maxBy(f)
+    reduceLeft((x, y) => if (cmp.lteq(x, y)) x else y)
+  }
 
-  override def minBy[B](f: (A) => B)(implicit cmp: Ordering[B]): A = super.minBy(f)
+  override def max[B >: A](implicit cmp: Ordering[B]): A = {
+    if (isEmpty)
+      throw new UnsupportedOperationException("empty.max")
 
-  override def copyToBuffer[B >: A](dest: mutable.Buffer[B]): Unit = super.copyToBuffer(dest)
+    reduceLeft((x, y) => if (cmp.gteq(x, y)) x else y)
+  }
 
-  override def copyToArray[B >: A](xs: Array[B], start: Int): Unit = super.copyToArray(xs, start)
 
-  override def copyToArray[B >: A](xs: Array[B]): Unit = super.copyToArray(xs)
+  override def maxBy[B](f: (A) => B)(implicit cmp: Ordering[B]): A = {
+    if (isEmpty)
+      throw new UnsupportedOperationException("empty.maxBy")
 
-  override def toArray[B >: A](implicit evidence$1: ClassTag[B]): Array[B] = super.toArray
+    var maxF: B = null.asInstanceOf[B]
+    var maxElem: A = null.asInstanceOf[A]
+    var first = true
 
-  override def toList: List[A] = super.toList
+    for (elem <- self) {
+      val fx = f(elem)
+      if (first || cmp.gt(fx, maxF)) {
+        maxElem = elem
+        maxF = fx
+        first = false
+      }
+    }
+    maxElem
+  }
 
-  override def toSeq: Seq[A] = super.toSeq
+  override def minBy[B](f: (A) => B)(implicit cmp: Ordering[B]): A = {
+    if (isEmpty)
+      throw new UnsupportedOperationException("empty.minBy")
 
-  override def toIndexedSeq: immutable.IndexedSeq[A] = super.toIndexedSeq
+    var minF: B = null.asInstanceOf[B]
+    var minElem: A = null.asInstanceOf[A]
+    var first = true
 
-  override def toBuffer[B >: A]: mutable.Buffer[B] = super.toBuffer
+    for (elem <- self) {
+      val fx = f(elem)
+      if (first || cmp.lt(fx, minF)) {
+        minElem = elem
+        minF = fx
+        first = false
+      }
+    }
+    minElem
+  }
 
-  override def toSet[B >: A]: Set[B] = super.toSet
+  override def toArray[@sp B >: A](implicit ev: ClassTag[B]): Array[B] = {
+    if (isTraversableAgain) {
+      val result = new Array[B](size)
+      copyToArray(result, 0)
+      result
+    }
+    else toBuffer.toArray
+  }
 
-  override def toVector: Vec[A] = super.toVector
+  override def toMap[T, U](implicit ev: <:<[A, (T, U)]): Map[T, U] = {
+    val b = immutable.Map.newBuilder[T, U]
+    for (x <- self)
+      b += x
+    b.result()
+  }
 
-  override def toMap[T, U](implicit ev: <:<[A, (T, U)]): Map[T, U] = super.toMap
+  def toTraversable: Traversable[A]
 
-  override def mkString(start: String, sep: String, end: String): String = super.mkString(start, sep, end)
+  override def toList: List[A] = to[List]
 
-  override def mkString(sep: String): String = super.mkString(sep)
+  override def toIterable: Iterable[A] = toStream
 
-  override def mkString: String = super.mkString
+  override def toSeq: Seq[A] = toStream
 
-  override def addString(b: StringBuilder, start: String, sep: String, end: String): StringBuilder = super.addString(b, start, sep, end)
+  override def toIndexedSeq: immutable.IndexedSeq[A] = to[immutable.IndexedSeq]
 
-  override def addString(b: StringBuilder, sep: String): StringBuilder = super.addString(b, sep)
+  override def toBuffer[B >: A]: mutable.Buffer[B] = to[ArrayBuffer].asInstanceOf[mutable.Buffer[B]]
 
-  override def addString(b: StringBuilder): StringBuilder = super.addString(b)
+  override def toSet[B >: A]: immutable.Set[B] = to[immutable.Set].asInstanceOf[immutable.Set[B]]
+
 
   /*Methods from JavaLang*/
 
-  override def equals(o: Any): Boolean = super.equals(o)
+  override def hashCode(): Int
 
-  override def hashCode(): Int = super.hashCode()
-
-  override def clone(): AnyRef = super.clone()
+  override def clone(): AnyRef
 
   /* Helper Functions*/
 
@@ -689,7 +745,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     this.focusOn(currentSize - 1)
     spire.math.max(this.depth, that.depth) match {
       case 1 =>
-        val concat: Node = rebalancedLeafs(display0, that.display0)
+        val concat: Node = rebalancedLeafs(display0, that.display0.asInstanceOf[Leaf])
         initFromRoot(concat, 1)
 
       case 2 =>
@@ -858,7 +914,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           else
             d0 = d1(0).asInstanceOf[Leaf]
         }
-        var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
+        var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
         concat = rebalanced(this.display3, concat, d3, 4)
@@ -913,7 +969,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           else
             d0 = d1(0).asInstanceOf[Leaf]
         }
-        var concat: Node = rebalancedLeafs(this.display0, d0, isTop = false)
+        var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
         concat = rebalanced(this.display3, concat, d3, 4)
@@ -928,7 +984,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     }
   }
 
-  private def rebalanced[@sp B >: A](displayLeft: Node,
+  private def rebalanced[@sp B >: A : ClassTag](displayLeft: Node,
                                      concat: Node,
                                      displayRight: Node,
                                      currentDepth: Int): Node = {
@@ -953,8 +1009,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
           displayRight.length - 1
       }
 
-    val branching: Int =
-      computeBranching(displayLeft, concat, displayRight, currentDepth)
+    val branching: Int = computeBranching(displayLeft, concat, displayRight, currentDepth)
 
     val top: Node = new Node(branching >> 10 + (if((branching & 1 << 10 - 1) == 0) 1 else 2))
     var mid: Node = new Node(if((branching >> 10) == 0) (branching + 31) >> 5 + 1 else 33)
@@ -982,15 +1037,13 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
               displayEnd = leftLength - 1
           }
         case 1 =>
-          {
-            if (concat == null)
-              displayEnd = 0
-            else {
-              currentDisplay = concat
-              displayEnd = concatLength
-            }
-            i = 0
+          if (concat == null)
+            displayEnd = 0
+          else {
+            currentDisplay = concat
+            displayEnd = concatLength
           }
+          i = 0
         case 2 =>
           if (displayRight != null) {
             currentDisplay = displayRight
@@ -1177,7 +1230,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     branching
   }
 
-  private[immutable] def append[@sp B >: A](elem: B, _endIndex: Int): Unit = {
+  private[Immutable] def append[@sp B >: A: ClassTag](elem: B, _endIndex: Int): Unit = {
     if (focusStart.+(focus).^(_endIndex - 1) >= 32)
       normalizeAndFocusOn(_endIndex - 1)
 
@@ -1199,13 +1252,13 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
   }
 
   private def appendBackNewBlock[@sp B >: A](elem: B,
-                                             elemIndexInBlock: Int): Unit = {
+                                             elemIndexInBlock: Int)(implicit m: ClassTag[B]): Unit = {
     val oldDepth = depth
     val newRelaxedIndex = endIndex.-(1).-(focusStart).+(focusRelax)
     val focusJoined = focus.|(focusRelax)
     val xor = newRelaxedIndex.^(focusJoined)
     val _transient = transient
-    setupNewBlockInNextBranch(xor, _transient)
+    setupNewBlockInNextBranch(xor, _transient)(m.asInstanceOf[ClassTag[A]])
     if (oldDepth == depth) {
       var i =
         if (xor < (1 << 10))
@@ -1279,7 +1332,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     }
   }
 
-  private def createSingletonVector[@sp B >: A](elem: B): Vector[B] = {
+  private def createSingletonVector[@sp B >: A : ClassTag](elem: B): Vector[B] = {
     val resultVector = new Vector[B](1)
     resultVector.initSingleton(elem)
     resultVector
@@ -1293,9 +1346,9 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     focusOn(index)
   }
 
-  private[immutable] def prepend[@sp B >: A](elem: B): Unit = {
+  private[Immutable] def prepend[@sp B >: A: ClassTag](elem: B): Unit = {
 
-    if (focusStart.!=(0).||(focus.&(-32).!=(0)))
+    if (focusStart != 0 || (focus & -32) != 0)
       normalizeAndFocusOn(0)
 
     val d0 = display0
@@ -1315,10 +1368,10 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     display0 = newD0
     makeTransientIfNeeded()
   }
-  private def prependFrontNewBlock[@sp B >: A](elem: B): Unit = {
+  private def prependFrontNewBlock[@sp B >: A](elem: B)(implicit m: ClassTag[B]): Unit = {
     var currentDepth = focusDepth
-    if (currentDepth.==(1))
-      currentDepth.+=(1)
+    if (currentDepth == 1)
+      currentDepth += 1
 
     var display = currentDepth match {
       case 1 =>
@@ -1331,8 +1384,8 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
       case 6 => display5
       case 7 => display6
     }
-    while (display.!=(null).&&(display.length.==(33))) {
-      currentDepth.+=(1)
+    while ((display != null).&&(display.length.==(33))) {
+      currentDepth += 1
       currentDepth match {
         case 2 => display = display1
         case 3 => display = display2
@@ -1345,7 +1398,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
     }
     val oldDepth = depth
     val _transient = transient
-    setupNewBlockInInitBranch(currentDepth, _transient)
+    setupNewBlockInInitBranch(currentDepth, _transient)(m.asInstanceOf[ClassTag[A]])
     if (oldDepth.==(depth)) {
       var i = currentDepth
       if (i.<(oldDepth)) {
@@ -1544,3 +1597,4 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)
 
 
 }
+
