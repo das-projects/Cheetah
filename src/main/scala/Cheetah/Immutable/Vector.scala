@@ -13,16 +13,15 @@ import scala.{specialized => sp}
 import scala.{Vector => Vec}
 import spire.syntax.all._
 
+import scala.collection.IterableView.Coll
 import scala.collection.mutable.ArrayBuffer
 import scala.language.higherKinds
 
-object Vector extends scala.collection.generic.IndexedSeqFactory[Vector] {
+object Vector extends IndexedSeqFactory[Vector] {
 
-  def newBuilder[@sp A]: mutable.Builder[A, Vector[A]] =
-    new VectorBuilder[A]()
+  def newBuilder[@sp A]: VectorBuilder[A] = new VectorBuilder[A]()
 
-  implicit def canBuildFrom[@sp A: ClassTag]
-    : scala.collection.generic.CanBuildFrom[Coll, A, Vector[A]] =
+  implicit def canBuildFrom[@sp A: ClassTag]: scala.collection.generic.CanBuildFrom[Coll, A, Vector[A]] =
       ReusableCBF.asInstanceOf[GenericCanBuildFrom[A]]
 
   lazy private val EMPTY_VECTOR = new Vector[Nothing](0)
@@ -37,20 +36,19 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
   extends Traversable[A]
     with TraversableLike[A, Vector[A]]
     with Iterable[A]
-    with IndexedSeqFactory[Vector]
     with IterableLike[A, Vector[A]]
     with VectorPointer[A @uncheckedVariance]
     with Serializable { self =>
 
   private[Immutable] var transient: Boolean = false
 
-  def newBuilder[@sp B >: A]: VectorBuilder[B] = new VectorBuilder[B]()
+  def newBuilder[@sp A]: VectorBuilder[A] = new VectorBuilder[A]()
 
-  implicit def canBuildFrom[@sp B >: A]: scala.collection.generic.CanBuildFrom[Coll, B, Vector[B]] = ReusableCBF.asInstanceOf[GenericCanBuildFrom[B]]
+  implicit def canBuildFrom[@sp B >: A]: IndexedSeq.GenericCanBuildFrom[B] = IndexedSeq.ReusableCBF.asInstanceOf[IndexedSeq.GenericCanBuildFrom[B]]
 
   lazy private val EMPTY_VECTOR = new Vector[Nothing](0)
 
-  override def empty[@sp B >: A]: Vector[B] = EMPTY_VECTOR
+  def empty[@sp B >: A]: Vector[B] = EMPTY_VECTOR
 
   final lazy private[Immutable] val emptyTransientBlock = new Node(2)
 
@@ -539,7 +537,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
 
   override def toStream: Stream[A] = iterator.toStream // TODO use fs2
 
-  override def view(from: Int, until: Int): IterableView[A, Vector[A]] = view.slice(from, until)
+  //override def view(from: Int, until: Int): IterableView[A, Vector[A]] = view.slice(from, until)
 
   /*Methods from GenericTraversableTemplate */
 
@@ -547,7 +545,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
 
   private def sequential: TraversableOnce[A] = this.asInstanceOf[GenTraversableOnce[A]].seq
 
-  override def unzip[@sp A1, @sp A2](implicit asPair: A => (A1, A2)): (Vector[A1], Vector[A2]) = {
+  override def unzip[@sp A1 >: A, @sp A2 >: A](implicit asPair: A => (A1, A2)): (Vector[A1], Vector[A2]) = {
     val b1 = newBuilder[A1]
     val b2 = newBuilder[A2]
     for (xy <- sequential) {
@@ -558,34 +556,11 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
     (b1.result, b2.result)
   }
 
-  override def flatten[B](implicit asTraversable: (A) => GenTraversableOnce[B]): Iterable[B] = {
+  override def flatten[@sp B >: A](implicit asTraversable: (A) => GenTraversableOnce[B]): Iterable[B] = {
     val b: mutable.Builder[B, Iterable[B]] = newBuilder[B]
     for (xs <- sequential)
       b ++= asTraversable(xs).seq
     b.result
-  }
-
-  override def transpose[@sp B](implicit asTraversable: A => GenTraversableOnce[B]): Vector[Vector[B] @uncheckedVariance] = {
-    if (isEmpty)
-      return newBuilder[Vector[B]].result()
-
-    def fail: Nothing = throw new IllegalArgumentException("transpose requires all collections have the same size")
-
-    val headSize: Int = asTraversable(head).size
-    val bs: IndexedSeq[mutable.Builder[B, Vector[B]]] = IndexedSeq.fill(headSize)(newBuilder[B])
-    for (xs <- sequential) {
-      var i: Int = 0
-      for (x <- asTraversable(xs).seq) {
-        if (i >= headSize) fail
-        bs(i) += x
-        i += 1
-      }
-      if (i != headSize)
-        fail
-    }
-    val bb: VectorBuilder[Vector[B]] = newBuilder[Vector[B]]
-    for (b <- bs) bb += b.result
-    bb.result
   }
 
   override def count(p: (A) => Boolean): Int = {
@@ -707,8 +682,6 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
     b.result()
   }
 
-  def toTraversable: Traversable[A]
-
   override def toList: List[A] = to[List]
 
   override def toIterable: Iterable[A] = toStream
@@ -720,13 +693,6 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
   override def toBuffer[B >: A]: mutable.Buffer[B] = to[ArrayBuffer].asInstanceOf[mutable.Buffer[B]]
 
   override def toSet[B >: A]: immutable.Set[B] = to[immutable.Set].asInstanceOf[immutable.Set[B]]
-
-
-  /*Methods from JavaLang*/
-
-  override def hashCode(): Int
-
-  override def clone(): AnyRef
 
   /* Helper Functions*/
 
