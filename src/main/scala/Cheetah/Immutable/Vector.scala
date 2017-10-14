@@ -2646,45 +2646,31 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     */
   def aggregate[B](z: => B)(seqop: (B, A) => B, combop: (B, B) => B): B = {
     var acc: B = z
-    this.split.foreach(x => acc = combop(x.foldLeft(z)(seqop),acc))
+    this.split.foreach(x => acc = combop(while(x.hasNext) acc = seqop(acc, x.next()), acc))
+    this.split.foreach(x => acc = combop(while(x.hasNext) acc = seqop(acc, x.next()), acc))
     acc
   }
 
   def split: Seq[VectorIterator[A]] = {
-    val remaining: Int = this.length
-    if (remaining >= 2) {
-      val _half: Int = remaining / 2
-      val _splitModulo: Int = {
-        if (remaining <= (1 << 5)) 1
-        else if (remaining <= (1 << 10)) 1 << 5
-        else if (remaining <= (1 << 15)) 1 << 10
-        else if (remaining <= (1 << 20)) 1 << 15
-        else if (remaining <= (1 << 25)) 1 << 20
-        else if (remaining <= (1 << 30)) 1 << 25
-        else if (remaining <= (1 << 35)) 1 << 30
-        else 1 << 35
+    var splitted: ArrayBuffer[VectorIterator[A]] = new ArrayBuffer[VectorIterator[A]]
+    val nsplits: Int = this.length / (1 << 5)
+    var currentPos: Int = 0
+    if(nsplits > 0) {
+      var i: Int = 0
+      while(i < nsplits) {
+        val forward: VectorIterator[A] = new VectorIterator[A](currentPos, currentPos + 1 << 5)
+        forward.initIteratorFrom(this)
+        splitted += forward
+        currentPos += 1 << 5
+        i += 1
       }
-      val _halfAdjusted: Int = {
-        if (_half > _splitModulo) _half - _half % _splitModulo
-        else if (_splitModulo < remaining) _splitModulo
-        else _half
-      }
-      psplit(_halfAdjusted, remaining - _halfAdjusted)
-    } else {
-      Seq(this.iterator)
-    }
-  }
-  // TODO Need to fix
-  def psplit(sizes: Int*): Seq[VectorIterator[A]] = {
-    val splitted: ArrayBuffer[VectorIterator[A]] = new ArrayBuffer[VectorIterator[A]]
-    var currentPos: Int = this.length // - remaining
-    sizes.foreach(sz => {
-      val forward: VectorIterator[A] = new VectorIterator[A](currentPos, currentPos + sz)
+      val forward: VectorIterator[A] = new VectorIterator[A](currentPos, this.length)
       forward.initIteratorFrom(this)
       splitted += forward
-      currentPos += sz
-    })
-    splitted
+      splitted
+    } else {
+    Seq(this.iterator)
+    }
   }
 
   /** Applies a binary operator to all elements of this $coll, going right to left.
