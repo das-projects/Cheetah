@@ -1,9 +1,8 @@
 package Cheetah.Immutable
 
 import scala.reflect.ClassTag
-import scala.{specialized => sp}
 
-private[Immutable] trait VectorPointer[@sp A] {
+private[Immutable] trait VectorPointer[A]{
 
   type Node = Array[AnyRef]
   type Leaf = Array[A]
@@ -18,7 +17,7 @@ private[Immutable] trait VectorPointer[@sp A] {
   final private[Immutable] var display6: Node = _
   final private[Immutable] var display7: Node = _
 
-  final private[Immutable] var depth: Int = _
+  final private[Immutable] var depth: Int = 0
   final private[Immutable] var focusStart: Int = 0
   final private[Immutable] var focusEnd: Int = 0
   final private[Immutable] var focusDepth: Int = 0
@@ -125,23 +124,21 @@ private[Immutable] trait VectorPointer[@sp A] {
     focusOn(0)
   }
 
-  final private[Immutable] def initSingleton(elem: A)(implicit m: ClassTag[A]): Unit = {
-    // TODO Need to check for correctness: Seems Fine
+  final private[Immutable] def initSingleton(elem: A)(implicit ct: ClassTag[A]): Unit = {
     initFocus(0, 0, 1, 1, 0)
     val d0: Leaf = new Leaf(1)
-    val d1: Node = new Node(3) // 3 since that is what other functions defined are doing
+    val d1: Node = new Node(2) // 2 for now, other places i saw 3
     val size: Size = new Size(1)
 
     d0.update(0, elem)
-    display0 = d0
+    size.update(0, d0.length)
 
     d1.update(0, display0)
-    size.update(0, d0.length)
     d1.update(1, size)
+
+    display0 = d0
     display1 = d1
-
     depth = 1
-
   }
 
   final private[Immutable] def root: Node = depth match {
@@ -276,7 +273,7 @@ private[Immutable] trait VectorPointer[@sp A] {
   }
 
   final private[Immutable] def setupNewBlockInNextBranch(xor: Int,
-                                                         transient: Boolean)(implicit m: ClassTag[A]): Unit = {
+                                                         transient: Boolean)(implicit ct: ClassTag[A]): Unit = {
     if (xor < (1 << 10)) {
 
       if (transient) normalize(1)
@@ -423,7 +420,8 @@ private[Immutable] trait VectorPointer[@sp A] {
   }
 
   final private[Immutable] def setupNewBlockInInitBranch(insertionDepth: Int,
-                                                         transient: Boolean)(implicit m: ClassTag[A]): Unit = insertionDepth match {
+                                                         transient: Boolean)(implicit ct: ClassTag[A]): Unit = {
+    insertionDepth match {
     case 1 =>
 
       if (transient) normalize(1)
@@ -561,6 +559,7 @@ private[Immutable] trait VectorPointer[@sp A] {
 
     case _ => throw new IllegalStateException()
   }
+  }
 
   final private[Immutable] def gotoPos(index: Int, xor: Int): Unit = {
 
@@ -656,7 +655,7 @@ private[Immutable] trait VectorPointer[@sp A] {
   }
 
   final private[Immutable] def gotoNextBlockStartWritable(index: Int,
-                                                          xor: Int)(implicit m: ClassTag[A]): Unit = {
+                                                          xor: Int)(implicit ct: ClassTag[A]): Unit = {
     if (xor < (1 << 10)) {
 
       display0 = new Leaf(32)
@@ -1058,43 +1057,43 @@ private[Immutable] trait VectorPointer[@sp A] {
     _depth match {
 
       case 1 =>
-        val d1 = display1
+        val d1: Node = display1
         d1.update(_focus >> 5 & 31, display0)
 
       case 2 =>
-        val d1 = display1
+        val d1: Node = display1
         d1.update(_focus >> 5 & 31, display0)
-        val d2 = display2
+        val d2: Node = display2
         d2.update(_focus >> 10 & 31, d1)
 
       case 3 =>
-        val d1 = display1
+        val d1: Node = display1
         d1.update(_focus >> 5 & 31, display0)
-        val d2 = display2
+        val d2: Node = display2
         d2.update(_focus >> 10 & 31, d1)
-        val d3 = display3
+        val d3: Node = display3
         d3.update(_focus >> 15 & 31, d2)
 
       case 4 =>
-        val d1 = display1
+        val d1: Node = display1
         d1.update(_focus >> 5 & 31, display0)
-        val d2 = display2
+        val d2: Node = display2
         d2.update(_focus >> 10 & 31, d1)
-        val d3 = display3
+        val d3: Node = display3
         d3.update(_focus >> 15 & 31, d2)
-        val d4 = display4
+        val d4: Node = display4
         d4.update(_focus >> 20 & 31, d3)
 
       case 5 =>
-        val d1 = display1
+        val d1: Node = display1
         d1.update(_focus >> 5 & 31, display0)
-        val d2 = display2
+        val d2: Node = display2
         d2.update(_focus >> 10 & 31, d1)
-        val d3 = display3
+        val d3: Node = display3
         d3.update(_focus >> 15 & 31, d2)
-        val d4 = display4
+        val d4: Node = display4
         d4.update(_focus >> 20 & 31, d3)
-        val d5 = display5
+        val d5: Node = display5
         d5.update(_focus >> 25 & 31, d4)
 
       case 6 =>
@@ -1235,7 +1234,7 @@ private[Immutable] trait VectorPointer[@sp A] {
         } else
           this.depth = 6
 
-      case 6 =>
+      case 7 =>
         if ((cutIndex >> 35) == 0) {
           display7 = null
           if ((cutIndex >> 30) == 0) {
@@ -1421,9 +1420,16 @@ private[Immutable] trait VectorPointer[@sp A] {
     newArray
   }
 
+  final private[Immutable] def copyOf(array: Leaf): Leaf = {
+    val length: Int = array.length
+    val newArray: Leaf = new Leaf(length)
+    System.arraycopy(array, 0, newArray, 0, length)
+    newArray
+  }
+
   final private[Immutable] def copyOf(array: Leaf,
                                       numElements: Int,
-                                      newSize: Int)(implicit m: ClassTag[A]): Leaf = {
+                                      newSize: Int)(implicit ct: ClassTag[A]): Leaf = {
     val newArray: Leaf = new Leaf(newSize)
     System.arraycopy(array, 0, newArray, 0, numElements)
     newArray
@@ -1434,6 +1440,7 @@ private[Immutable] trait VectorPointer[@sp A] {
     val len: Int = array.length
     val newArray: Node = new Node(len)
     System.arraycopy(array, 0, newArray, 0, len - 1)
+
     newArray.update(nullIndex, null)
     val sizes: Size = array(len - 1).asInstanceOf[Size]
     if (sizes != null)
@@ -1460,9 +1467,9 @@ private[Immutable] trait VectorPointer[@sp A] {
 
   final private def makeNewRoot1(node: Node,
                                  currentDepth: Int): Node = {
-    val dSize: Int = treeSize(node, currentDepth) // (currentDepth - 1)
+    val dSize: Int = treeSize(node, currentDepth)
     val newRootSizes: Size = new Size(2)
-    newRootSizes.update(1, dSize)
+    newRootSizes.update(0, dSize)
     val newRoot: Node = new Node(3)
     newRoot.update(1, node)
     newRoot.update(2, newRootSizes)
@@ -1491,17 +1498,17 @@ private[Immutable] trait VectorPointer[@sp A] {
   final private def copyAndIncRightRoot(node: Node,
                                         transient: Boolean,
                                         currentLevel: Int): Node = {
-    val len: Int = node.length
-    val newRoot: Node = copyOf(node, len - 1, len + 1)
-    val oldSizes: Size = node(len - 1).asInstanceOf[Size]
+    val length: Int = node.length
+    val newRoot: Node = copyOf(node, length - 1, length + 1)
+    val oldSizes: Size = node(length - 1).asInstanceOf[Size]
     if (oldSizes != null) {
-      val newSizes: Size = new Size(len)
-      System.arraycopy(oldSizes, 0, newSizes, 0, len - 1)
+      val newSizes: Size = new Size(length)
+      System.arraycopy(oldSizes, 0, newSizes, 0, length - 1)
       if (transient)
-        newSizes.update(len - 1, 1 << (5 * currentLevel))
+        newSizes.update(length - 1, 1 << (5 * currentLevel))
 
-      newSizes.update(len - 1, newSizes(len - 2))
-      newRoot.update(len, newSizes)
+      newSizes.update(length - 1, newSizes(length - 2))
+      newRoot.update(length, newSizes)
     }
     newRoot
   }
@@ -1541,7 +1548,7 @@ private[Immutable] trait VectorPointer[@sp A] {
       var i = 0
       var acc = 0
       val end = node.length - 1
-  
+
       if (end > 1) {
         val sizes = new Size(end)
         while (i < end) {
@@ -1745,7 +1752,7 @@ private[Immutable] trait VectorPointer[@sp A] {
         .+(display0)
         .+(" ")
         .+(
-          if (display0.!=(null))
+          if (display0 != null)
             display0.mkString("[", ", ", "]")
           else
             "")

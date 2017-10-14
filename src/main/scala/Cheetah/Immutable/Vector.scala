@@ -1,703 +1,1530 @@
 package Cheetah.Immutable
 
-//import Cheetah.Immutable.Vector.{Coll, ReusableCBF}
+import java.util.NoSuchElementException
 
-import Cheetah.Immutable
-
+import scala.annotation.{migration, tailrec}
 import scala.annotation.unchecked.uncheckedVariance
-import scala.collection.generic.{CanBuildFrom, FilterMonadic, GenericCompanion, IndexedSeqFactory}
-import scala.collection.parallel.{Combiner, ParIterable}
-import scala.collection.{GenIterable, GenTraversableOnce, IndexedSeqLike, Iterable, IterableLike, IterableView, Iterator, Traversable, TraversableLike, breakOut, immutable, mutable}
+import scala.collection.generic.{CanBuildFrom, GenericCompanion}
+import scala.collection.mutable.{ArrayBuffer, Builder}
+import scala.collection.parallel.Combiner
+import scala.collection.{GenIterable, GenMap, GenSeq, GenSet, GenTraversable, GenTraversableOnce, IndexedSeq, Iterator, TraversableOnce, immutable, mutable}
 import scala.reflect.ClassTag
-import scala.{specialized => sp}
-import scala.{Vector => Vec}
-import spire.syntax.all._
-
-import scala.collection.IterableView.Coll
-import scala.collection.mutable.ArrayBuffer
 import scala.language.higherKinds
 
-object Vector extends IndexedSeqFactory[Vector] {
+object Vector {
+  //def newBuilder[A]: VectorBuilder[A] = new VectorBuilder[A]
+  def newBuilder[A](implicit ct: ClassTag[A]): VectorBuilder[A] = new VectorBuilder[A]()(ct)
 
-  def newBuilder[@sp A]: VectorBuilder[A] = new VectorBuilder[A]()
+  implicit def canBuildFrom[A](implicit ct: ClassTag[A]): CanBuildFrom[Vector[_], A, Vector[A]] =
+    new CanBuildFrom[Vector[_], A, Vector[A]] {
+      override def apply(from: Vector[_]): VectorBuilder[A] = new VectorBuilder[A]()(ct)
 
-  implicit def canBuildFrom[@sp A: ClassTag]: scala.collection.generic.CanBuildFrom[Coll, A, Vector[A]] =
-      ReusableCBF.asInstanceOf[GenericCanBuildFrom[A]]
+      def apply(): VectorBuilder[A] = new VectorBuilder[A]()(ct)
+    }
 
-  lazy private val EMPTY_VECTOR = new Vector[Nothing](0)
+  def empty[A](implicit ct: ClassTag[A]): Vector[A] = new Vector[A](0)(ct)
 
-  override def empty[A]: Vector[A] = EMPTY_VECTOR
-
-  final lazy private[Immutable] val emptyTransientBlock = new Array[AnyRef](2)
+  final lazy private[Immutable] val emptyTransientBlock: Array[AnyRef] = new Array[AnyRef](2)
 }
 
-
-final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implicit ct: ClassTag[A])
-  extends Traversable[A]
-    with TraversableLike[A, Vector[A]]
-    with Iterable[A]
-    with IterableLike[A, Vector[A]]
-    with VectorPointer[A @uncheckedVariance]
-    with Serializable { self =>
+class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
+  extends VectorPointer[A@uncheckedVariance]
+    with Serializable {
+  self =>
 
   private[Immutable] var transient: Boolean = false
 
-  def newBuilder[@sp A]: VectorBuilder[A] = new VectorBuilder[A]()
+  // GenSeqLike
 
-  implicit def canBuildFrom[@sp B >: A]: IndexedSeq.GenericCanBuildFrom[B] = IndexedSeq.ReusableCBF.asInstanceOf[IndexedSeq.GenericCanBuildFrom[B]]
+  def seq: Vector[A] = this
 
-  lazy private val EMPTY_VECTOR = new Vector[Nothing](0)
-
-  def empty[@sp B >: A]: Vector[B] = EMPTY_VECTOR
-
-  final lazy private[Immutable] val emptyTransientBlock = new Node(2)
-
-  /*Methods from TraversableLike */
-
-  override protected[this] type Self = Vector[A]
-
-  override def repr: Vector[A] = this.asInstanceOf[Self]
-
-  override def size: Int = endIndex
-
-  def sizeCompare(len: Int): Int = endIndex - len
-
-  override def par: ParVector[A] = new ParVector[A](this)
-
+  /** Selects an element by its index in the type constructor Vector
+    *
+    * Example:
+    *
+    * {{{
+    *    scala> val x = Vector(1, 2, 3, 4, 5)
+    *    x: Vector[Int] = Vector(1, 2, 3, 4, 5)
+    *
+    *    scala> x(3)
+    *    res1: Int = 4
+    * }}}
+    *
+    * @param  index The index to select.
+    * @return the element of this $coll at index `index`, where `0` indicates the first element.
+    * @throws IndexOutOfBoundsException if `index` does not satisfy `0 <= index < length`.
+    */
   def apply(index: Int): A = {
-    val _focusStart = this.focusStart
+    val _focusStart: Int = this.focusStart
     if (_focusStart <= index && index < this.focusEnd) {
-      val indexInFocus = index - _focusStart
+      val indexInFocus: Int = index - _focusStart
       getElem(indexInFocus, indexInFocus ^ this.focus)
-    } else if (0 <= index && index < endIndex)
+    } else if (isDefinedAt(index)) {
+      if (this.transient) {
+        this.normalize(this.depth)
+        this.transient = false
+      }
       getElementFromRoot(index)
-    else
+    } else {
       throw new IndexOutOfBoundsException(index.toString)
-  }
-
-  override def iterator: VectorIterator[A] = {
-    if (this.transient) {
-      this.normalize(this.depth)
-      this.transient = false
-    }
-    val it = new VectorIterator[A](0, endIndex)
-    it.initIteratorFrom(this)
-    it
-  }
-
-  def reverseIterator: VectorReverseIterator[A] = {
-    if (this.transient) {
-      this.normalize(this.depth)
-      this.transient = false
-    }
-    val rit = new VectorReverseIterator[A](0, endIndex)
-    rit.initIteratorFrom(this)
-    rit
-  }
-
-  def ++[@sp B >: A : ClassTag, @sp That](that: GenTraversableOnce[B])
-                                         (implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-
-    if (bf.eq(IndexedSeq.ReusableCBF)) {
-        if (that.isEmpty)
-          this.asInstanceOf[That]
-        else that match {
-          case thatVec: Vector[B] =>
-            if (this.endIndex == 0)
-              thatVec.asInstanceOf[That]
-            else {
-              val newVec = new Vector[B](this.endIndex + thatVec.endIndex)
-              newVec.initWithFocusFrom(this.asInstanceOf[Vector[B]])
-              newVec.transient = this.transient
-              newVec.concatenate(this.endIndex, thatVec)
-              newVec.asInstanceOf[That]
-            }
-          case _ =>
-            val b: VectorBuilder[B] = newBuilder[B] // TODO Make sure this is working at it is supposed to
-            if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
-            b ++= thisCollection
-            b ++= that.seq
-            b.result.asInstanceOf[That]
-        }
-      } else {
-      val b: VectorBuilder[B] = newBuilder[B]
-      if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
-      b ++= thisCollection
-      b ++= that.seq
-      b.result.asInstanceOf[That]
     }
   }
 
-  def ++:[@sp B >: A, @sp That](that: TraversableOnce[B])
-                               (implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
-    val b: VectorBuilder[B] = newBuilder[B]
-    if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.size)
-    b ++= that
-    b ++= thisCollection
-    b.result.asInstanceOf[That]
-  }
+  /** The length/size of the $coll.
+    *
+    * $willNotTerminateInf
+    *
+    * Note: `xs.length` and `xs.size` yield the same result.
+    *
+    * @return the number of elements in this $coll.
+    */
+  def length: Int = endIndex
 
-  def ++:[@sp B >: A : ClassTag, @sp That](that: Traversable[B])
-                                          (implicit bf: CanBuildFrom[Vector[A], B, That]): That = (that ++ this)(breakOut)
+  def size: Int = endIndex
 
-  // Append
-  def :+[@sp B >: A, That](elem: B)
-                          (implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
-    if (bf.eq(IndexedSeq.ReusableCBF)) {
-      val _endIndex = this.endIndex
-      if (_endIndex != 0) {
-        val resultVector: Vector[B] = new Vector[B](_endIndex + 1)
-        resultVector.transient = this.transient
-        resultVector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
-        resultVector.append(elem, _endIndex)
-        resultVector.asInstanceOf[That]
-      } else
-        createSingletonVector(elem).asInstanceOf[That]
-    } else {
-      val b: VectorBuilder[B] = newBuilder[B]
-      b ++= thisCollection
-      b += elem
-      b.result.asInstanceOf[That]
+  /** Tests whether this $coll contains given index.
+    *
+    * The implementations of methods `apply` and `isDefinedAt` turn a `Seq[A]` into
+    * a `PartialFunction[Int, A]`.
+    *
+    * @param    index the index to test
+    * @return `true` if this $coll contains an element at position `idx`, `false` otherwise.
+    */
+  @inline def isDefinedAt(index: Int): Boolean = (index >= 0) && (index < endIndex)
+
+  /** Computes length of longest segment whose elements all satisfy some predicate.
+    *
+    * $mayNotTerminateInf
+    *
+    * @param   p    the predicate used to test elements.
+    * @param   from the index where the search starts.
+    * @return the length of the longest segment of this $coll starting from index `from`
+    *         such that every element of the segment satisfies the predicate `p`.
+    */
+  def segmentLength(p: A => Boolean, from: Int): Int = {
+    if (from >= endIndex) 0 else {
+      var i: Int = 0
+      val forward: VectorIterator[A] = iterator(from, endIndex)
+      while (forward.hasNext && p(forward.next())) i += 1
+      i
     }
   }
 
-  // Prepend
-  def +:[@sp B >: A, That](elem: B)
-                          (implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
-    if (bf.eq(IndexedSeq.ReusableCBF)) {
-      val _endIndex = this.endIndex
-      if (_endIndex != 0) {
-        val resultVector = new Vector[B](_endIndex + 1)
-        resultVector.transient = this.transient
-        resultVector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
-        resultVector.prepend(elem)
-        resultVector.asInstanceOf[That]
-      } else
-        createSingletonVector(elem).asInstanceOf[That]
-    } else {
-      val b: VectorBuilder[B] = newBuilder[B]
-      b += elem
-      b ++= thisCollection
-      b.result.asInstanceOf[That]
-    }
-  }
+  /** Returns the length of the longest prefix whose elements all satisfy some predicate.
+    *
+    * $mayNotTerminateInf
+    *
+    * @param   p the predicate used to test elements.
+    * @return the length of the longest prefix of this $coll
+    *         such that every element of the segment satisfies the predicate `p`.
+    */
+  def prefixLength(p: A => Boolean): Int = segmentLength(p, 0)
 
-  /*
-  * Map Like Operations
-  * */
-
-  override def foreach[@sp B](f: (A) => B): Unit =
-    cfor(0)(_ < endIndex, _ + 1) { i:Int => f(this(i)) } // TODO Implement in the object and optimize using C++/CUDA via JavaCPP
-
-  def map[@sp B >: A, @sp That](f: (A) => B)
-                               (implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
-    val b: VectorBuilder[B] = newBuilder[B]
-    for(x <- this) b += f(x)
-    b.result.asInstanceOf[That]
-  }
-
-  override def flatMap[@sp B >: A, @sp That](f: (A) => GenTraversableOnce[B])
-                                            (implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    def builder: VectorBuilder[B] = newBuilder[B] // extracted to keep method size under 35 bytes, so that it can be JIT-inlined
-    val b: VectorBuilder[B] = builder // Is mapping and then building the structure one at a time faster than first allocating space and then mapping
-    for (x <- this) b ++= f(x).seq // Sugared form of foreach
-    b.result.asInstanceOf[That]
-  }
-
-  override def filter(p: (A) => Boolean): Vector[A] = {
-    val b: VectorBuilder[A] = newBuilder[A]
-    for (x <- this)
-      if (p(x)) b += x // Sugared form of foreach
-    b.result
-  }
-
-  override def filterNot(p: (A) => Boolean): Vector[A] = {
-    val b: VectorBuilder[A] = newBuilder[A]
-    for (x <- this) if (!p(x)) b += x // Sugared form of foreach
-    b.result
-  }
-
-  def collect[@sp B >: A, @sp That](pf: PartialFunction[A, B])(implicit bf: CanBuildFrom[Vector[A], B, That], ct: ClassTag[B]): That = {
-    val b: VectorBuilder[B] = newBuilder[B]
-    foreach(pf.runWith(b += _)) // Understand what a partial function
-    b.result.asInstanceOf[That]
-  }
-
-  override def partition(p: (A) => Boolean): (Vector[A], Vector[A]) = {
-    val l: VectorBuilder[A] = newBuilder[A]
-    val r: VectorBuilder[A] = newBuilder[A]
-    for (x <- this) (if (p(x)) l else r) += x // Sugared form of foreach
-    (l.result, r.result)
-  }
-
-  def groupBy[@sp K](f: (A) => K)(implicit ct: ClassTag[K]): Map[K, Vector[A]] =  { // TODO Convert to vectorbuilder
-    val m: mutable.Map[K, VectorBuilder[A]] = mutable.Map.empty
-    for (elem <- this) {
-      val key: K = f(elem)
-      val builder: VectorBuilder[A] = m.getOrElseUpdate(key, newBuilder[A])
-      builder += elem
-    }
-    val b: mutable.Builder[(K, Vector[A]), Map[K, Vector[A]]] = immutable.Map.newBuilder[K, Vector[A]]
-    for ((k, v) <- m)
-      b += ((k, v.result))
-
-    b.result
-  }
-
-  override def scan[@sp B >: A, That](z: B)(op: (B, B) => B)
-                                     (implicit cbf: CanBuildFrom[Vector[A], B, That]): That = scanLeft(z)(op)
-
-  override def scanLeft[@sp B >: A, That](z: B)(op: (B, A) => B)
-                                         (implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    val b: VectorBuilder[B] = newBuilder[B]
-    b.sizeHint(this, 1)
-    var acc: B = z
-    b += acc
-    for (x <- this) { acc = op(acc, x); b += acc } // Sugared form of foreach
-    b.result.asInstanceOf[That]
-  }
-
-  override def scanRight[@sp B >: A, That](z: B)(op: (A, B) => B)
-                                          (implicit bf: CanBuildFrom[Vector[A], B, That]): That = {
-    var scanned = List(z) // TODO Maybe another data structure would be useful here and if the two for loops can be reduced to one
-    var acc: B = z
-    for (x <- reversed) { // Sugared form of foreach
-      acc = op(x, acc)
-      scanned ::= acc
-    }
-    val b: VectorBuilder[B] = newBuilder[B]
-    for (elem <- scanned) b += elem // Sugared form of foreach
-    b.result.asInstanceOf[That]
-  }
-
-  override def headOption: Option[A] = if (isEmpty) None else Some(head)
-
-  override def tail: Vector[A] = if (isEmpty) throw new UnsupportedOperationException("empty.tail") else this.drop(1)
-
-  override def last: A = {
-    if (this.endIndex != 0)
-    this.apply(this.size - 1)
-  else
-    throw new UnsupportedOperationException("empty.last")
-  }
-
-  override def lastOption: Option[A] = if (isEmpty) None else Some(last)
-
-  override def init: Vector[A] = {
-    if (this.endIndex != 0)
-    dropRight(1)
-  else
-    throw new UnsupportedOperationException("empty.init")
-  }
-
-  /*Methods from TransferableLike */
-
-  override def dropWhile(p: (A) => Boolean): Vector[A] = {
-    val b: VectorBuilder[A] = newBuilder[A]
-    var go: Boolean = false
-    for (x <- this) {
-      if (!go && !p(x)) go = true
-      if (go) b += x
-    }
-    b.result
-  }
-
-  override def span(p: (A) => Boolean): (Vector[A], Vector[A]) = {
-    val l = newBuilder
-    val r = newBuilder
-    val toLeft: Boolean = true
-    for (x <- this) (if (toLeft && p(x)) l else r) += x
-    (l.result, r.result)
-  }
-
-  override def splitAt(n: Int): (Vector[A], Vector[A]) = scala.Tuple2(take(n), drop(n))
-
-  private def iterateUntilEmpty(f: Iterable[A @uncheckedVariance] => Iterable[A @uncheckedVariance]): Iterator[Vector[A]] = {
-    val it = Iterator.iterate(thisCollection)(f) takeWhile (x => x.nonEmpty)
-    it ++ Iterator(Nil) map (x => (newBuilder ++= x).result)
-  }
-
-  override def tails: Iterator[Vector[A]] = iterateUntilEmpty(_.tail)
-
-  override def inits: Iterator[Vector[A]] = iterateUntilEmpty(_.init)
-
-  def to[Vector[_]]: Immutable.Vector[A] = {
-    val b: VectorBuilder[A] = newBuilder[A]
-    b.sizeHint(this)
-    b ++= thisCollection
-    b.result
-  }
-
-  override def toString(): String = mkString(stringPrefix + "(", ", ", ")")
-
-  override def stringPrefix: String =  {
-    /* This method is written in a style that avoids calling `String.split()`
-     * as well as methods of java.lang.Character that require the Unicode
-     * database information. This is mostly important for Scala.js, so that
-     * using the collection library does automatically bring java.util.regex.*
-     * and the Unicode database in the generated code.
-     *
-     * This algorithm has the additional benefit that it won't allocate
-     * anything except the result String in the common case, where the class
-     * is not an inner class (i.e., when the result contains no '.').
-     */
-    val fqn = repr.getClass.getName
-    var pos: Int = fqn.length - 1
-
-    // Skip trailing $'s
-    while (pos != -1 && fqn.charAt(pos) == '$') {
-      pos -= 1
-    }
-    if (pos == -1 || fqn.charAt(pos) == '.') {
-      return ""
-    }
-
-    var result: String = ""
-    while (true) {
-      // Invariant: if we enter the loop, there is a non-empty part
-
-      // Look for the beginning of the part, remembering where was the last non-digit
-      val partEnd = pos + 1
-      while (pos != -1 && fqn.charAt(pos) <= '9' && fqn.charAt(pos) >= '0') {
-        pos -= 1
-      }
-      val lastNonDigit = pos
-      while (pos != -1 && fqn.charAt(pos) != '$' && fqn.charAt(pos) != '.') {
-        pos -= 1
-      }
-      val partStart = pos + 1
-
-      // A non-last part which contains only digits marks a method-local part -> drop the prefix
-      if (pos == lastNonDigit && partEnd != fqn.length) {
-        return result
-      }
-
-      // Skip to the next part, and determine whether we are the end
-      while (pos != -1 && fqn.charAt(pos) == '$') {
-        pos -= 1
-      }
-      val atEnd = pos == -1 || fqn.charAt(pos) == '.'
-
-      // Handle the actual content of the part (we ignore parts that are likely synthetic)
-      def isPartLikelySynthetic = {
-        val firstChar = fqn.charAt(partStart)
-        (firstChar > 'Z' && firstChar < 0x7f) || (firstChar < 'A')
-      }
-      if (atEnd || !isPartLikelySynthetic) {
-        val part = fqn.substring(partStart, partEnd)
-        result = if (result.isEmpty) part else part + '.' + result
-        if (atEnd)
-          return result
-      }
-    }
-
-    // dead code
-    result
-  }
-
-  /*Methods from Iterable */
-
-  override def companion: scala.collection.generic.GenericCompanion[Vector] = Vector // TODO NOT SURE
-
-  //override def seq: Iterable[A] = super.seq // TODO NOT SURE
-
-
-  /*Methods from IterableLike */
-
-  protected[this] override def thisCollection: Iterable[A] = this.asInstanceOf[Iterable[A]]
-
-  protected[this] override def toCollection(repr: Vector[A]): Iterable[A] = repr.asInstanceOf[Iterable[A]]
-
-  override def forall(p: (A) => Boolean): Boolean = iterator.forall(p)
-
-  override def exists(p: (A) => Boolean): Boolean = iterator.exists(p)
-
-  override def find(p: (A) => Boolean): Option[A] = iterator.find(p)
-
-  override def isEmpty: Boolean = this.endIndex == 0
-
-  override def foldRight[B](z: B)(op: (A, B) => B): B = iterator.foldRight(z)(op)
-
-  override def reduceRight[B >: A](op: (A, B) => B): B = iterator.reduceRight(op)
-
-  //override def toIterable: Iterable[A] = iterator.toIterable
-
-  override def head: A = {
-    if (this.endIndex != 0)
-      apply(0)
-    else
-      throw new UnsupportedOperationException("empty.head")
-  }
-
-  override def slice(from: Int, until: Int): Vector[A] = take(until).drop(from)
-
-  override def take(n: Int): Vector[A] = {
-    if (n <= 0)
-      Vector.empty
-    else if (n < endIndex)
-      takeFront0(n)
-    else
-      this
-  }
-
-  override def drop(n: Int): Vector[A] = {
-    if (n <= 0)
-      this
-    else if (n.<(endIndex))
-      dropFront0(n)
-    else
-      Vector.empty
-  }
-
-  override def takeWhile(p: (A) => Boolean): Vector[A] = {
-    val b: VectorBuilder[A] = newBuilder
-    val it: VectorIterator[A] = iterator
-    while (it.hasNext) {
-      val x = it.next()
-      if (!p(x)) return b.result
-      b += x
-    }
-    b.result
-  }
-
-  override def grouped(size: Int): Iterator[Vector[A]] =
-    for (xs <- iterator grouped size) yield {
-    val b: VectorBuilder[A] = newBuilder
-    b ++= xs
-    b.result
-  }
-
-  override def sliding(size: Int): Iterator[Vector[A]] = sliding(size, 1)
-
-  override def sliding(size: Int, step: Int): Iterator[Vector[A]] =
-    for (xs <- iterator.sliding(size, step)) yield {
-    val b: VectorBuilder[A] = newBuilder
-    b ++= xs
-    b.result
-  }
-
-  override def takeRight(n: Int): Vector[A] = {
-    if (n <= 0)
-      Vector.empty
-    else if (n < endIndex)
-      dropFront0(endIndex - n)
-    else
-      this
-  }
-
-  override def dropRight(n: Int): Vector[A] = {
-    if (n <= 0)
-      this
-    else if (n < endIndex)
-      takeFront0(endIndex - n)
-    else
-      Vector.empty
-  }
-
-  override def zip[A1 >: A, B, That](that: GenIterable[B])(implicit bf: CanBuildFrom[Vector[A], (A1, B), That]): That = {
-    val b: mutable.Builder[(A1, B), That] = bf(repr)
-    val these: VectorIterator[A] = this.iterator
-    val those: Iterator[B] = that.iterator
-    while (these.hasNext && those.hasNext)
-      b += ((these.next(), those.next()))
-    b.result
-  }
-
-  override def zipAll[B, A1 >: A, That](that: GenIterable[B], thisElem: A1, thatElem: B)(implicit bf: CanBuildFrom[Vector[A], (A1, B), That]): That = {
-    val b: mutable.Builder[(A1, B), That] = bf(repr)
-    val these: VectorIterator[A] = this.iterator
-    val those: Iterator[B] = that.iterator
-    while (these.hasNext && those.hasNext)
-      b += ((these.next(), those.next()))
-    while (these.hasNext)
-      b += ((these.next(), thatElem))
-    while (those.hasNext)
-      b += ((thisElem, those.next()))
-    b.result()
-  }
-  override def zipWithIndex[A1 >: A, That](implicit bf: CanBuildFrom[Vector[A], (A1, Int), That]): That = {
-    val b: mutable.Builder[(A1, Int), That] = bf(repr)
-    var i: Int = 0
-    for (x <- this) {
-      b += ((x, i))
+  /** Finds index of the first element satisfying some predicate after or at some start index.
+    *
+    * $mayNotTerminateInf
+    *
+    * @param   p    the predicate used to test elements.
+    * @param   from the start index
+    * @return the index `>= from` of the first element of this $coll that satisfies the predicate `p`,
+    *         or `-1`, if none exists.
+    */
+  def indexWhere(p: A => Boolean, from: Int): Int = {
+    var i: Int = from
+    val forward: VectorIterator[A] = iterator(from, endIndex)
+    while (forward.hasNext) {
+      if (p(forward.next())) return i
       i += 1
     }
-    b.result
+    -1
   }
 
-  override def sameElements[@sp B >: A](that: GenIterable[B]): Boolean = {
-    val these: VectorIterator[A] = this.iterator
-    val those: Iterator[B] = that.iterator
-    while (these.hasNext && those.hasNext)
-      if (these.next != those.next)
-        return false
+  /** Finds index of first element satisfying some predicate.
+    *
+    * $mayNotTerminateInf
+    *
+    * @param   p the predicate used to test elements.
+    * @return the index of the first element of this $coll that satisfies the predicate `p`,
+    *         or `-1`, if none exists.
+    */
+  def indexWhere(p: A => Boolean): Int = indexWhere(p, 0)
 
-    !these.hasNext && !those.hasNext
+  /** Finds index of first occurrence of some value in this $coll.
+    *
+    * @param   elem the element value to search for.
+    * @tparam  B the type of the element `elem`.
+    * @return the index of the first element of this $coll that is equal (as determined by `==`)
+    *         to `elem`, or `-1`, if none exists.
+    * @usecase def indexOf(elem: A): Int
+    * @inheritdoc
+    *
+    * $mayNotTerminateInf
+    *
+    */
+  def indexOf[B >: A](elem: B): Int = indexOf(elem, 0)
+
+  /** Finds index of first occurrence of some value in this $coll after or at some start index.
+    *
+    * @param   elem the element value to search for.
+    * @tparam  B the type of the element `elem`.
+    * @param   from the start index
+    * @return the index `>= from` of the first element of this $coll that is equal (as determined by `==`)
+    *         to `elem`, or `-1`, if none exists.
+    * @usecase def indexOf(elem: A, from: Int): Int
+    * @inheritdoc
+    *
+    * $mayNotTerminateInf
+    *
+    */
+  def indexOf[B >: A](elem: B, from: Int): Int = indexWhere(elem == _, from)
+
+  /** Finds index of last occurrence of some value in this $coll.
+    *
+    * @param   elem the element value to search for.
+    * @tparam  B the type of the element `elem`.
+    * @return the index of the last element of this $coll that is equal (as determined by `==`)
+    *         to `elem`, or `-1`, if none exists.
+    * @usecase def lastIndexOf(elem: A): Int
+    * @inheritdoc
+    *
+    * $willNotTerminateInf
+    *
+    */
+  def lastIndexOf[B >: A](elem: B): Int = lastIndexWhere(elem == _)
+
+  /** Finds index of last occurrence of some value in this $coll before or at a given end index.
+    *
+    * @param   elem the element value to search for.
+    * @param   end  the end index.
+    * @tparam  B the type of the element `elem`.
+    * @return the index `<= end` of the last element of this $coll that is equal (as determined by `==`)
+    *         to `elem`, or `-1`, if none exists.
+    * @usecase def lastIndexOf(elem: A, end: Int): Int
+    * @inheritdoc
+    */
+  def lastIndexOf[B >: A](elem: B, end: Int): Int = lastIndexWhere(elem == _, end)
+
+  /** Finds index of last element satisfying some predicate.
+    *
+    * $willNotTerminateInf
+    *
+    * @param   p the predicate used to test elements.
+    * @return the index of the last element of this $coll that satisfies the predicate `p`,
+    *         or `-1`, if none exists.
+    */
+  def lastIndexWhere(p: A => Boolean): Int = lastIndexWhere(p, endIndex)
+
+  /** Finds index of last element satisfying some predicate before or at given end index.
+    *
+    * @param   p the predicate used to test elements.
+    * @return the index `<= end` of the last element of this $coll that satisfies the predicate `p`,
+    *         or `-1`, if none exists.
+    */
+  def lastIndexWhere(p: A => Boolean, end: Int): Int = {
+    var i: Int = endIndex - 1
+    val reverse: VectorReverseIterator[A] = reverseiterator(0, end)
+    while (reverse.hasNext && !p(reverse.next())) i -= 1
+    i
   }
 
-  override def toStream: Stream[A] = iterator.toStream // TODO use fs2
+  /** Returns new $coll with elements within start to end in reversed order.
+    *
+    * $willNotTerminateInf
+    *
+    * @param start : Int
+    * @param end   : Int
+    * @return A new $coll with all elements of this $coll in reversed order.
+    */
+  def reverse(start: Int, end: Int): Vector[A] = {
+    val reverse: VectorReverseIterator[A] = reverseiterator(start, end)
+    val build: VectorBuilder[A] = newBuilder
+    while (reverse.hasNext) build += reverse.next()
+    build.result()
+  }
 
-  //override def view(from: Int, until: Int): IterableView[A, Vector[A]] = view.slice(from, until)
+  def reverse: Vector[A] = reverse(0, endIndex)
 
-  /*Methods from GenericTraversableTemplate */
+  /**
+    * Builds a new collection by applying a function to all elements of this Vector type constructor and
+    * collecting the results in reversed order.
+    *
+    * @param f the function to apply to each element.
+    * @tparam B the element type of the returned collection.
+    * @return a new collection of type `Vector[B]` resulting from applying the given function
+    *         `f` to each element of this Vector and collecting the results in reversed order.
+    * @usecase def reverseMap[B](f: A => B): Vector[B]
+    * @inheritdoc
+    *
+    * $willNotTerminateInf
+    *
+    * Note: `xs.reverseMap(f)` is the same as `xs.reverse.map(f)` but might be more efficient.
+    * @return a new Vector resulting from applying the given function
+    *         `f` to each element of this Vector and collecting the results in reversed order.
+    */
+  def reverseMap[B](f: A => B): Vector[B] = {
+    val reverse: VectorReverseIterator[A] = reverseiterator(0, endIndex)
+    val build: VectorBuilder[B] = genericBuilder[B]
+    while (reverse.hasNext) build += f(reverse.next())
+    build.result()
+  }
 
-  override def genericBuilder[@sp B]: mutable.Builder[B, Iterable[B]] = companion.newBuilder[B]
+  /** Tests whether this $coll starts with the given sequence.
+    *
+    * @param  that the sequence to test
+    * @return `true` if this collection has `that` as a prefix, `false` otherwise.
+    */
+  def startsWith[B](that: Vector[B]): Boolean = startsWith(that, 0)
 
-  private def sequential: TraversableOnce[A] = this.asInstanceOf[GenTraversableOnce[A]].seq
+  /** Tests whether this $coll contains the given sequence at a given index.
+    *
+    * '''Note''': If the both the receiver object `this` and the argument
+    * `that` are infinite sequences this method may not terminate.
+    *
+    * @param  that   the sequence to test
+    * @param  offset the index where the sequence is searched.
+    * @return `true` if the sequence `that` is contained in this $coll at
+    *         index `offset`, otherwise `false`.
+    */
+  def startsWith[B](that: Vector[B], offset: Int): Boolean = {
+    if (offset >= this.endIndex) false
+    else if ((this.endIndex - offset) != that.endIndex) false
+    else {
+      var i: Int = 0
+      val thisforward: VectorIterator[A] = this.iterator(offset, this.endIndex)
+      val thatforward: VectorIterator[B] = that.iterator(0, that.endIndex)
+      while (thatforward.hasNext && thisforward.next() == thatforward.next()) i += 1
+      i == that.endIndex
+    }
+  }
 
-  override def unzip[@sp A1 >: A, @sp A2 >: A](implicit asPair: A => (A1, A2)): (Vector[A1], Vector[A2]) = {
-    val b1 = newBuilder[A1]
-    val b2 = newBuilder[A2]
-    for (xy <- sequential) {
+  /** Tests whether this $coll ends with the given sequence.
+    * $willNotTerminateInf
+    *
+    * @param  that the sequence to test
+    * @return `true` if this $coll has `that` as a  , `false` otherwise.
+    */
+  def endsWith[B](that: Vector[B]): Boolean = {
+    if (this.endIndex < that.endIndex) false
+    else {
+      var i: Int = 0
+      val thisreverse: VectorReverseIterator[A] = this.reverseiterator
+      val thatreverse: VectorReverseIterator[B] = that.reverseiterator
+      while (thatreverse.hasNext && thisreverse.next() == thatreverse.next()) i += 1
+      i == that.endIndex
+    }
+  }
+
+  /** Produces a new $coll where a slice of elements in this $coll is replaced by another sequence.
+    *
+    * @param  from     the index of the first replaced element
+    * @param  patch    the replacement sequence
+    * @param  replaced the number of elements to drop in the original $coll
+    * @tparam B the element type of the returned $coll.
+    * @return a new $coll consisting of all elements of this $coll
+    *         except that `replaced` elements starting from `from` are replaced
+    *         by `patch`.
+    * @usecase def patch(from: Int, that: GenSeq[A], replaced: Int): $Coll[A]
+    * @inheritdoc
+    * @return a new $coll consisting of all elements of this $coll
+    *         except that `replaced` elements starting from `from` are replaced
+    *         by `patch`.
+    */
+  def patch[B >: A](from: Int, patch: Vector[B], replaced: Int): Vector[B] = {
+    val vector: Vector[B] = new Vector[B](endIndex)
+    vector.transient = this.transient
+    vector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
+
+    var index: Int = {
+      if (from > 0) {
+        if (from < vector.focusStart || vector.focusEnd <= from || ((from - vector.focusStart) & ~31) != (vector.focus & ~31)) {
+          if (!vector.isDefinedAt(from)) throw new IndexOutOfBoundsException(from.toString)
+          vector.normalizeAndFocusOn(from)
+        }
+        from - ((from - vector.focusStart) & 31)
+      } else {
+        0
+      }
+    }
+
+    // Pad the patch with enough elements so that blocks are aligned
+    var i: Int = from - 1
+    while (i >= index) {
+      this (i) +: patch
+      i -= 1
+    }
+
+    while (index < from + spire.math.min(replaced, patch.length)) {
+      // Focus on the index that needs to be updated
+      if (index < vector.focusStart || vector.focusEnd <= index || ((index - vector.focusStart) & ~31) != (vector.focus & ~31)) {
+        if (!vector.isDefinedAt(index)) throw new IndexOutOfBoundsException(index.toString)
+        vector.normalizeAndFocusOn(index)
+      }
+      vector.makeTransientIfNeeded()
+
+      if ((from + spire.math.min(replaced, patch.length) - index) < 32) {
+        // Replace only the subset of the Array if less than a block of elements are left to be updated
+
+        val d0: Array[B] = copyOf(vector.display0.asInstanceOf[Leaf]).asInstanceOf[Array[B]]
+        while (index < from + spire.math.min(replaced, patch.length)) {
+          d0.update((index - vector.focusStart) & 31, patch(index - from))
+          index += 1
+        }
+        vector.display0 = d0
+      } else {
+        // Replace by a copy of the whole Array when all the elements of the block need to be updated
+
+        patch.normalizeAndFocusOn(index - from)
+        patch.makeTransientIfNeeded()
+        vector.display0 = copyOf(patch.display0.asInstanceOf[Leaf]).asInstanceOf[Array[B]]
+        index += 32
+      }
+    }
+    vector
+  }
+
+  /** A copy of this $coll with one single replaced element.
+    *
+    * @param  index the position of the replacement
+    * @param  elem  the replacing element
+    * @tparam B the element type of the returned $coll.
+    * @return a new $coll which is a copy of this $coll with the element at position `index` replaced by `elem`.
+    * @throws IndexOutOfBoundsException if `index` does not satisfy `0 <= index < length`.
+    * @usecase def updated(index: Int, elem: A): $Coll[A]
+    * @inheritdoc
+    * @return a copy of this $coll with the element at position `index` replaced by `elem`.
+    */
+  def updated[B >: A](index: Int, elem: B): Vector[B] = {
+    val vector: Vector[B] = new Vector[B](endIndex)
+    vector.transient = this.transient
+    vector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
+
+    if (index < focusStart || focusEnd <= index || ((index - focusStart) & ~31) != (focus & ~31)) {
+      if (!vector.isDefinedAt(index)) throw new IndexOutOfBoundsException(index.toString)
+      vector.normalizeAndFocusOn(index)
+    }
+    vector.makeTransientIfNeeded()
+
+    val d0 = copyOf(vector.display0.asInstanceOf[Leaf]).asInstanceOf[Array[B]]
+    d0.update((index - vector.focusStart) & 31, elem)
+    vector.display0 = d0
+    vector.asInstanceOf[Vector[B]]
+  }
+
+  private[Immutable] def normalizeAndFocusOn(index: Int): Unit = {
+    if (transient) {
+      normalize(depth)
+      transient = false
+    }
+    focusOn(index)
+  }
+
+  private[Immutable] def makeTransientIfNeeded(): Unit = {
+    val _depth = depth
+    if (!transient) {
+      copyDisplaysAndNullFocusedBranch(_depth, focus | focusRelax)
+      transient = true
+    }
+  }
+
+  /** A copy of the $coll with an element prepended.
+    *
+    * @param  elem the prepended element
+    * @tparam B the element type of the returned $coll.
+    * @return a new collection of type `That` consisting of `elem` followed
+    *         by all elements of this $coll.
+    * @usecase def +:(elem: A): $Coll[A]
+    * @inheritdoc
+    *
+    * Note that :-ending operators are right associative (see example).
+    * A mnemonic for `+:` vs. `:+` is: the Colon goes on the Collection side.
+    *
+    * Also, the original $coll is not modified, so you will want to capture the result.
+    *
+    * Example:
+    * {{{
+    *      scala> val x = List(1)
+    *      x: List[Int] = List(1)
+    *
+    *      scala> val y = 2 +: x
+    *      y: List[Int] = List(2, 1)
+    *
+    *      scala> println(x)
+    *      List(1)
+    *    }}}
+    * @return a new $coll consisting of `elem` followed
+    *         by all elements of this $coll.
+    */
+  def +:[B >: A : ClassTag](elem: B): Vector[B] = {
+    if (this.length != 0) {
+      val vector = new Vector[B](this.endIndex + 1)
+      vector.transient = this.transient
+      vector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
+      vector.prepend(elem)
+      vector.asInstanceOf[Vector[B]]
+    } else {
+      createSingletonVector(elem)
+    }
+
+  }
+
+  private def createSingletonVector[B >: A : ClassTag](elem: B): Vector[B] = {
+    val resultVector = new Vector[B](1)
+    resultVector.initSingleton(elem)
+    resultVector
+  }
+
+  private[Immutable] def prepend[B >: A : ClassTag](elem: B): Unit = {
+
+    if (focusStart != 0 || (focus & -32) != 0) {
+      normalizeAndFocusOn(0)
+    }
+
+    val d0: Leaf = display0
+    if (d0.length < 32) {
+      prependOnCurrentBlock(elem, d0.asInstanceOf[Array[B]])
+    }
+    else {
+      prependFrontNewBlock(elem)
+    }
+  }
+
+  private def prependOnCurrentBlock[B >: A](elem: B,
+                                            old_d0: Array[B]): Unit = {
+    val new_length: Int = old_d0.length + 1
+    focusEnd = new_length
+
+    val new_d0: Leaf = new Leaf(new_length)
+    new_d0.update(0, elem.asInstanceOf[A])
+    System.arraycopy(old_d0, 0, new_d0, 1, new_length - 1)
+    display0 = new_d0
+
+    makeTransientIfNeeded()
+  }
+
+  private def prependFrontNewBlock[B >: A](elem: B)(implicit ct: ClassTag[B]): Unit = {
+    var currentDepth = focusDepth
+    var display: Node = currentDepth match {
+      case 1 => display1
+      case 2 => display2
+      case 3 => display3
+      case 4 => display4
+      case 5 => display5
+      case 6 => display6
+      case 7 => display7
+    }
+
+    while (display != null && display.length == 33) {
+      currentDepth += 1
+      currentDepth match {
+        case 1 => display = display1
+        case 2 => display = display2
+        case 3 => display = display3
+        case 4 => display = display4
+        case 5 => display = display5
+        case 6 => display = display6
+        case 7 => display = display7
+        case _ => throw new IllegalStateException()
+      }
+    }
+
+    val oldDepth: Int = depth
+    val _transient: Boolean = transient
+    setupNewBlockInInitBranch(currentDepth, _transient)(ct.asInstanceOf[ClassTag[A]])
+    if (oldDepth == depth) {
+      var i: Int = currentDepth
+      if (i < oldDepth) {
+        val _focusDepth: Int = focusDepth
+        var display: Node = i match {
+          case 1 => display1
+          case 2 => display2
+          case 3 => display3
+          case 4 => display4
+          case 5 => display5
+          case 6 => display6
+          case 7 => display7
+        }
+        do {
+          val displayLen: Int = display.length - 1
+          val newSizes: Array[Int] = {
+            if (i >= _focusDepth) {
+              makeTransientSizes(display(displayLen).asInstanceOf[Array[Int]], 1)
+            }
+            else {
+              null
+            }
+          }
+          val newDisplay: Node = new Node(display.length)
+
+          System.arraycopy(display, 0, newDisplay, 0, displayLen - 1)
+          if (i >= _focusDepth) {
+            newDisplay.update(displayLen, newSizes)
+          }
+          i match {
+            case 2 =>
+              display1 = newDisplay
+              display = display2
+            case 3 =>
+              display2 = newDisplay
+              display = display3
+            case 4 =>
+              display3 = newDisplay
+              display = display4
+            case 5 =>
+              display4 = newDisplay
+              display = display5
+            case 6 =>
+              display5 = newDisplay
+              display = display6
+            case 7 =>
+              display6 = newDisplay
+              display = display7
+          }
+          i += 1
+        } while (i < oldDepth)
+      }
+    }
+    initFocus(0, 0, 1, 1, 0)
+    display0.update(0, elem.asInstanceOf[A])
+    transient = true
+  }
+
+  /** A copy of this $coll with an element appended.
+    *
+    * A mnemonic for `+:` vs. `:+` is: the COLon goes on the COLlection side.
+    *
+    * @param  elem the appended element
+    * @tparam B the element type of the returned $coll.
+    * @return a new collection of type `That` consisting of
+    *         all elements of this $coll followed by `elem`.
+    * @usecase def :+(elem: A): $Coll[A]
+    * @inheritdoc
+    *
+    * $willNotTerminateInf
+    *
+    * Example:
+    * {{{
+    *       scala> val a = List(1)
+    *       a: List[Int] = List(1)
+    *
+    *       scala> val b = a :+ 2
+    *       b: List[Int] = List(1, 2)
+    *
+    *       scala> println(a)
+    *       List(1)
+    *    }}}
+    * @return a new $coll consisting of
+    *         all elements of this $coll followed by `elem`.
+    */
+  def :+[B >: A : ClassTag](elem: B): Vector[B] = {
+    if (this.endIndex != 0) {
+      val resultVector: Vector[B] = new Vector[B](this.endIndex + 1)
+      resultVector.transient = this.transient
+      resultVector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
+      resultVector.append(elem, this.endIndex)
+      resultVector.asInstanceOf[Vector[B]]
+    } else {
+      createSingletonVector(elem)
+    }
+  }
+
+  private[Immutable] def append[B >: A : ClassTag](elem: B, _endIndex: Int): Unit = {
+    if ((focusStart + focus ^ _endIndex - 1) >= 32)
+      normalizeAndFocusOn(_endIndex - 1)
+
+    val elemIndexInBlock = _endIndex.-(focusStart).&(31)
+    if (elemIndexInBlock != 0)
+      appendOnCurrentBlock(elem, elemIndexInBlock)
+    else
+      appendBackNewBlock(elem, elemIndexInBlock)
+  }
+
+  private def appendOnCurrentBlock[B >: A](elem: B,
+                                           elemIndexInBlock: Int): Unit = {
+    focusEnd = endIndex
+    val d0: Leaf = new Leaf(elemIndexInBlock + 1)
+    System.arraycopy(display0, 0, d0, 0, elemIndexInBlock)
+    d0.update(elemIndexInBlock, elem.asInstanceOf[A])
+    display0 = d0
+    makeTransientIfNeeded()
+  }
+
+  private def appendBackNewBlock[B >: A](elem: B,
+                                         elemIndexInBlock: Int)(implicit m: ClassTag[B]): Unit = {
+    val oldDepth: Int = depth
+    val newRelaxedIndex: Int = endIndex - 1 - focusStart + focusRelax
+    val focusJoined: Int = focus | focusRelax
+    val xor: Int = newRelaxedIndex ^ focusJoined
+    val _transient: Boolean = transient
+    setupNewBlockInNextBranch(xor, _transient)(m.asInstanceOf[ClassTag[A]])
+
+    if (oldDepth == depth) {
+      var i: Int = {
+        if (xor < (1 << 10)) {
+          2
+        }
+        else if (xor < (1 << 15)) {
+          3
+        }
+        else if (xor < (1 << 20)) {
+          4
+        }
+        else if (xor < (1 << 25)) {
+          5
+        }
+        else if (xor < (1 << 30)) {
+          6
+        }
+        else if (xor < (1 << 35)) {
+          7
+        }
+        else {
+          7
+        }
+      }
+
+      if (i < oldDepth) {
+        val _focusDepth: Int = focusDepth
+        var display: Node = i match {
+          case 1 => display1
+          case 2 => display2
+          case 3 => display3
+          case 4 => display4
+          case 5 => display5
+          case 6 => display6
+          case 7 => display7
+        }
+        do {
+          val displayLen: Int = display.length - 1
+          val newSizes: Array[Int] = {
+            if (i >= _focusDepth) {
+              makeTransientSizes(display(displayLen).asInstanceOf[Array[Int]], displayLen - 1)
+            }
+            else {
+              null
+            }
+          }
+          val newDisplay: Node = new Node(display.length)
+
+          System.arraycopy(display, 0, newDisplay, 0, displayLen - 1)
+          if (i >= _focusDepth) {
+            newDisplay.update(displayLen, newSizes)
+          }
+          i match {
+            case 2 =>
+              display1 = newDisplay
+              display = display2
+            case 3 =>
+              display2 = newDisplay
+              display = display3
+            case 4 =>
+              display3 = newDisplay
+              display = display4
+            case 5 =>
+              display4 = newDisplay
+              display = display5
+            case 6 =>
+              display5 = newDisplay
+              display = display6
+            case 7 =>
+              display6 = newDisplay
+              display = display7
+          }
+          i += 1
+        } while (i < oldDepth)
+      }
+    }
+    if (oldDepth == focusDepth)
+      initFocus(endIndex - 1, 0, endIndex, depth, 0)
+    else
+      initFocus(endIndex - 1, endIndex - 1, endIndex, 1, newRelaxedIndex & -32)
+    display0.update(elemIndexInBlock, elem.asInstanceOf[A])
+    transient = true
+  }
+
+  private[Immutable] def makeTransientIfNeeded(): Unit = {
+    val _depth = depth
+    if (_depth > 1 && transient.`unary_!`) {
+      copyDisplaysAndNullFocusedBranch(_depth, focus.|(focusRelax))
+      transient = true
+    }
+  }
+
+  /** A copy of this $coll with an element value appended until a given target length is reached.
+    *
+    * @param   length the target length
+    * @param   elem   the padding value
+    * @tparam B the element type of the returned $coll.
+    * @return a new collection of type `That` consisting of
+    *         all elements of this $coll followed by the minimal number of occurrences of `elem` so
+    *         that the resulting collection has a length of at least `len`.
+    * @usecase def padTo(len: Int, elem: A): $Coll[A]
+    * @inheritdoc
+    * @return a new $coll consisting of
+    *         all elements of this $coll followed by the minimal number of occurrences of `elem` so
+    *         that the resulting $coll has a length of at least `len`.
+    */
+  def padTo[B >: A](length: Int, elem: B): Vector[B] = {
+    val build: VectorBuilder[B] = genericBuilder[B]
+    var index = length - this.length
+    build ++= this
+    while (index > 0) {
+      build += elem
+      index -= 1
+    }
+    build.result()
+  }
+
+  /** Tests whether every element of this $coll relates to the
+    * corresponding element of another sequence by satisfying a test predicate.
+    *
+    * @param   that the other sequence
+    * @param   p    the test predicate, which relates elements from both sequences
+    * @tparam  B the type of the elements of `that`
+    * @return `true` if both sequences have the same length and
+    *         `p(x, y)` is `true` for all corresponding elements `x` of this $coll
+    *         and `y` of `that`, otherwise `false`.
+    */
+  def corresponds[B](that: Vector[B])(p: (A, B) => Boolean): Boolean = {
+    val thisforward = this.iterator
+    val thatforward = that.iterator
+    var bool: Boolean = true
+    if (this.length == that.length) { // If both vectors have the same length
+      while (thisforward.hasNext && bool) { // If every corresponding element satisfies the predicate
+        if (!p(thisforward.next(), thatforward.next())) bool = false
+      }
+    } else {
+      bool = false
+    }
+    bool
+  }
+
+  def toSeq: Vector[A]
+
+  /** Produces a new sequence which contains all elements of this $coll and also all elements of
+    * a given sequence. `xs union ys`  is equivalent to `xs ++ ys`.
+    *
+    * @param that the sequence to add.
+    * @tparam B the element type of the returned $coll.
+    * @return a new collection of type `That` which contains all elements of this $coll
+    *         followed by all elements of `that`.
+    * @usecase def union(that: GenSeq[A]): $Coll[A]
+    * @inheritdoc
+    *
+    * Another way to express this
+    * is that `xs union ys` computes the order-preserving multi-set union of `xs` and `ys`.
+    * `union` is hence a counter-part of `diff` and `intersect` which also work on multi-sets.
+    *
+    * $willNotTerminateInf
+    * @return a new $coll which contains all elements of this $coll
+    *         followed by all elements of `that`.
+    */
+  def union[B >: A](that: Vector[B]): Vector[B] = this ++ that
+
+  /** Computes the multiset difference between this $coll and another sequence.
+    *
+    * @param that the sequence of elements to remove
+    * @tparam B the element type of the returned $coll.
+    * @return a new collection of type `That` which contains all elements of this $coll
+    *         except some of occurrences of elements that also appear in `that`.
+    *         If an element value `x` appears
+    *         ''n'' times in `that`, then the first ''n'' occurrences of `x` will not form
+    *         part of the result, but any following occurrences will.
+    * @usecase def diff(that: GenSeq[A]): $Coll[A]
+    * @inheritdoc
+    *
+    * $willNotTerminateInf
+    * @return a new $coll which contains all elements of this $coll
+    *         except some of occurrences of elements that also appear in `that`.
+    *         If an element value `x` appears
+    *         ''n'' times in `that`, then the first ''n'' occurrences of `x` will not form
+    *         part of the result, but any following occurrences will.
+    */
+  def diff[B >: A](that: Vector[B]): Vector[A] = {
+    val occurs: mutable.Map[B, Int] = that.occurrences
+    val build: VectorBuilder[A] = newBuilder
+    val forward: VectorIterator[A] = this.iterator
+    while (forward.hasNext) {
+      val x: A = forward.next()
+      val count: Int = occurs(x)
+      if (count == 0) {
+        build += x
+      } else {
+        occurs(x) = count - 1
+      }
+    }
+    build.result()
+  }
+
+  private def occurrences[B >: A]: mutable.Map[B, Int] = {
+    val occurrence: mutable.HashMap[B, Int] = new mutable.HashMap[B, Int] {
+      override def default(k: B) = 0
+    }
+    val forward = this.iterator
+    while (forward.hasNext) occurrence(forward.next()) += 1
+    occurrence
+  }
+
+  /** Computes the multiset intersection between this $coll and another sequence.
+    *
+    * @param that the sequence of elements to intersect with.
+    * @tparam B the element type of the returned $coll.
+    * @return a new collection of type `That` which contains all elements of this $coll
+    *         which also appear in `that`.
+    *         If an element value `x` appears
+    *         ''n'' times in `that`, then the first ''n'' occurrences of `x` will be retained
+    *         in the result, but any following occurrences will be omitted.
+    * @usecase def intersect(that: GenSeq[A]): $Coll[A]
+    * @inheritdoc
+    *
+    * $mayNotTerminateInf
+    * @return a new $coll which contains all elements of this $coll
+    *         which also appear in `that`.
+    *         If an element value `x` appears
+    *         ''n'' times in `that`, then the first ''n'' occurrences of `x` will be retained
+    *         in the result, but any following occurrences will be omitted.
+    */
+  def intersect[B >: A](that: Vector[B]): Vector[A] = {
+    val occurs: mutable.Map[B, Int] = that.occurrences
+    val build: VectorBuilder[A] = newBuilder
+    val forward: VectorIterator[A] = this.iterator
+    while (forward.hasNext) {
+      val x: A = forward.next()
+      val count: Int = occurs(x)
+      if (count != 0) {
+        build += x
+        occurs(x) = count - 1
+      }
+    }
+    build.result()
+  }
+
+  /** Builds a new $coll from this $coll without any duplicate elements.
+    * $willNotTerminateInf
+    *
+    * @return A new $coll which contains the first occurrence of every element of this $coll.
+    */
+  def distinct: Vector[A] = {
+    val occurs: mutable.Map[A, Int] = this.occurrences
+    val build: VectorBuilder[A] = newBuilder
+    val forward: VectorIterator[A] = this.iterator
+    while (forward.hasNext) {
+      val x: A = forward.next()
+      val count: Int = occurs(x)
+      if (count != 0) {
+        build += x
+        occurs(x) = 0
+      }
+    }
+    build.result()
+  }
+
+  /** Hashcodes for $Coll produce a value from the hashcodes of all the
+    * elements of the $coll.
+    */
+  override def hashCode(): Int = scala.util.hashing.MurmurHash3.hashCode()
+
+  /** The equals method for arbitrary sequences. Compares this sequence to
+    * some other object.
+    *
+    * @param    that The object to compare the sequence to
+    * @return `true` if `that` is a sequence that has the same elements as
+    *         this sequence in the same order, `false` otherwise
+    */
+  override def equals(that: Any): Boolean = that match {
+    case that: Vector[_] => (this corresponds that) ((x, y) => x == y)
+    case _ => false
+  }
+
+
+  // GenericTraversableTemplate
+
+  /** Applies a function `f` to all elements of this $coll.
+    *
+    * @param  f the function that is applied for its side-effect to every element.
+    *           The result of function `f` is discarded.
+    * @tparam  B the type parameter describing the result of function `f`.
+    *            This result will always be ignored. Typically `U` is `Unit`,
+    *            but this is not necessary.
+    * @usecase def foreach(f: A => Unit): Unit
+    * @inheritdoc
+    *
+    * Note: this method underlies the implementation of most other bulk operations.
+    * It's important to implement this method in an efficient way.
+    *
+    */
+  def foreach[B](f: A => B): Unit = {
+    val forward: VectorIterator[A] = this.iterator
+    while (forward.hasNext) f(forward.next())
+  }
+
+  /** Selects the first element of this $coll.
+    *
+    * @return the first element of this $coll.
+    * @throws NoSuchElementException if the $coll is empty.
+    */
+  def head: A = {
+    if (this.endIndex != 0) {
+      this.apply(0)
+    }
+    else {
+      throw new UnsupportedOperationException("empty.head")
+    }
+  }
+
+  /** Tests whether this $coll is empty.
+    *
+    * @return `true` if the $coll contain no elements, `false` otherwise.
+    */
+  def isEmpty: Boolean = this.endIndex == 0
+
+  /** Tests whether the $coll is not empty.
+    *
+    * @return `true` if the $coll contains at least one element, `false` otherwise.
+    */
+  def nonEmpty: Boolean = !isEmpty
+
+//  /** The factory companion object that builds instances of class $Coll.
+//    * (or its `Iterable` superclass where class $Coll is not a `Seq`.)
+//    */
+//  def companion: GenericCompanion[Vector] = new GenericCompanion[Vector] {
+//    override def newBuilder[A]: VectorBuilder[A] = new VectorBuilder[A]
+//  }
+
+  /** The builder that builds instances of type $Coll[A]
+    */
+  protected[this] def newBuilder: VectorBuilder[A] = new VectorBuilder[A]
+
+  /** The generic builder that builds instances of $Coll
+    * at arbitrary element types.
+    */
+  def genericBuilder[B]: VectorBuilder[B] = new VectorBuilder[B]
+
+  /** Returns a $coll formed from this $coll and another iterable collection
+    * by combining corresponding elements in pairs.
+    * If one of the two collections is longer than the other, its remaining elements are ignored.
+    *
+    * @param   that The iterable providing the second half of each result pair
+    * @tparam  A   the type of the first half of the returned pairs (this is always a supertype
+    *               of the collection's element type `A`).
+    * @tparam  B    the type of the second half of the returned pairs
+    * @return a new collection of type `That` containing pairs consisting of
+    *         corresponding elements of this $coll and `that`. The length
+    *         of the returned collection is the minimum of the lengths of this $coll and `that`.
+    * @usecase def zip[B](that: Vector[B]): $Coll[(A, B)]
+    * @inheritdoc
+    *
+    * $orderDependent
+    * @param   that The iterable providing the second half of each result pair
+    * @tparam  B the type of the second half of the returned pairs
+    * @return a new $coll containing pairs consisting of
+    *         corresponding elements of this $coll and `that`. The length
+    *         of the returned collection is the minimum of the lengths of this $coll and `that`.
+    */
+  def zip[B](that: Vector[B]): Vector[(A, B)] = {
+    val build: VectorBuilder[(A, B)] = genericBuilder[(A, B)]
+    val thisforward: VectorIterator[A] = this.iterator
+    val thatforward: VectorIterator[B] = that.iterator
+    while(thisforward.hasNext && thatforward.hasNext) build += (thisforward.next(), thatforward.next())
+    build.result()
+  }
+
+  /** Zips this $coll with its indices.
+    *
+    * @tparam  B the type of the first half of the returned pairs (this is always a supertype
+    *            of the collection's element type `A`).
+    * @tparam  [(B, Int)] the class of the returned collection. Where possible, `That` is
+    *            the same class as the current collection class `Repr`, but this
+    *            depends on the element type `(A1, Int)` being admissible for that class,
+    *            which means that an implicit instance of type `CanBuildFrom[Repr, (A1, Int), That]`.
+    *            is found.
+    * @return A new collection of type `That` containing pairs consisting of all elements of this
+    *         $coll paired with their index. Indices start at `0`.
+    * @usecase def zipWithIndex: $Coll[(A, Int)]
+    * @inheritdoc
+    *
+    * $orderDependent
+    * @return A new $coll containing pairs consisting of all elements of this
+    *         $coll paired with their index. Indices start at `0`.
+    * @example
+    * `List("a", "b", "c").zipWithIndex = List(("a", 0), ("b", 1), ("c", 2))`
+    *
+    */
+  def zipWithIndex[B >: A]: Vector[(B, Int)] = {
+    val build: VectorBuilder[(B, Int)] = genericBuilder[(B, Int)]
+    val forward: VectorIterator[A] = this.iterator
+    var index: Int = 0
+    while(forward.hasNext) {
+      build += (forward.next(), index)
+      index += 1
+    }
+    build.result()
+  }
+
+  /** Returns a $coll formed from this $coll and another iterable collection
+    * by combining corresponding elements in pairs.
+    * If one of the two collections is shorter than the other,
+    * placeholder elements are used to extend the shorter collection to the length of the longer.
+    *
+    * @param that     the iterable providing the second half of each result pair
+    * @param thisElem the element to be used to fill up the result if this $coll is shorter than `that`.
+    * @param thatElem the element to be used to fill up the result if `that` is shorter than this $coll.
+    * @return a new collection of type `That` containing pairs consisting of
+    *         corresponding elements of this $coll and `that`. The length
+    *         of the returned collection is the maximum of the lengths of this $coll and `that`.
+    *         If this $coll is shorter than `that`, `thisElem` values are used to pad the result.
+    *         If `that` is shorter than this $coll, `thatElem` values are used to pad the result.
+    * @usecase def zipAll[B](that: Iterable[B], thisElem: A, thatElem: B): $Coll[(A, B)]
+    * @inheritdoc
+    *
+    * $orderDependent
+    * @param   that   The iterable providing the second half of each result pair
+    * @param thisElem the element to be used to fill up the result if this $coll is shorter than `that`.
+    * @param thatElem the element to be used to fill up the result if `that` is shorter than this $coll.
+    * @tparam  B the type of the second half of the returned pairs
+    * @return a new $coll containing pairs consisting of
+    *         corresponding elements of this $coll and `that`. The length
+    *         of the returned collection is the maximum of the lengths of this $coll and `that`.
+    *         If this $coll is shorter than `that`, `thisElem` values are used to pad the result.
+    *         If `that` is shorter than this $coll, `thatElem` values are used to pad the result.
+    */
+  def zipAll[B, A1 >: A](that: Vector[B], thisElem: A1, thatElem: B): Vector[(A1, B)] = {
+    val build: VectorBuilder[(A1, B)] = genericBuilder[(A1, B)]
+    val thisforward: VectorIterator[A] = this.iterator
+    val thatforward: VectorIterator[B] = that.iterator
+    while(thisforward.hasNext && thatforward.hasNext) build += (thisforward.next(), thatforward.next())
+    while(thisforward.hasNext) build += (thisforward.next(), thatElem)
+    while(thatforward.hasNext) build += (thisElem, thatforward.next())
+    build.result()
+  }
+
+  /** Converts this $coll of pairs into two collections of the first and second
+    * half of each pair.
+    *
+    * {{{
+    *    val xs = $Coll(
+    *               (1, "one"),
+    *               (2, "two"),
+    *               (3, "three")).unzip
+    *    // xs == ($Coll(1, 2, 3),
+    *    //        $Coll(one, two, three))
+    * }}}
+    *
+    * @tparam A1 the type of the first half of the element pairs
+    * @tparam A2 the type of the second half of the element pairs
+    * @param asPair an implicit conversion which asserts that the element type
+    *               of this $coll is a pair.
+    * @return a pair of ${coll}s, containing the first, respectively second
+    *         half of each element pair of this $coll.
+    */
+  def unzip[A1, A2](implicit asPair: A => (A1, A2)): (Vector[A1], Vector[A2]) = {
+    val build1: VectorBuilder[A1] = genericBuilder[A1]
+    val build2: VectorBuilder[A2] = genericBuilder[A2]
+    this.foreach(xy => {
       val (x, y) = asPair(xy)
-      b1 += x
-      b2 += y
+      build1 += x
+      build2 += y
+    })
+    (build1.result(), build2.result())
+  }
+
+  /** Converts this $coll of triples into three collections of the first, second,
+    * and third element of each triple.
+    *
+    * {{{
+    *    val xs = $Coll(
+    *               (1, "one", '1'),
+    *               (2, "two", '2'),
+    *               (3, "three", '3')).unzip3
+    *    // xs == ($Coll(1, 2, 3),
+    *    //        $Coll(one, two, three),
+    *    //        $Coll(1, 2, 3))
+    * }}}
+    *
+    * @tparam A1 the type of the first member of the element triples
+    * @tparam A2 the type of the second member of the element triples
+    * @tparam A3 the type of the third member of the element triples
+    * @param asTriple an implicit conversion which asserts that the element type
+    *                 of this $coll is a triple.
+    * @return a triple of ${coll}s, containing the first, second, respectively
+    *         third member of each element triple of this $coll.
+    */
+  def unzip3[A1, A2, A3](implicit asTriple: A => (A1, A2, A3)): (Vector[A1], Vector[A2], Vector[A3]) = {
+    val build1: VectorBuilder[A1] = genericBuilder[A1]
+    val build2: VectorBuilder[A2] = genericBuilder[A2]
+    val build3: VectorBuilder[A3] = genericBuilder[A3]
+
+    this.foreach(xyz => {
+      val (x, y, z) = asTriple(xyz)
+      build1 += x
+      build2 += y
+      build3 += z
+    })
+    (build1.result(), build2.result(), build3.result())
+  }
+
+  /** Converts this $coll of traversable collections into
+    * a $coll formed by the elements of these traversable
+    * collections.
+    *
+    * @tparam B the type of the elements of each traversable collection.
+    * @return a new $coll resulting from concatenating all element ${coll}s.
+    * @usecase def flatten[B]: $Coll[B]
+    * @inheritdoc
+    *
+    * The resulting collection's type will be guided by the
+    * static type of $coll. For example:
+    *
+    * {{{
+    *    val xs = List(
+    *               Set(1, 2, 3),
+    *               Set(1, 2, 3)
+    *             ).flatten
+    *    // xs == List(1, 2, 3, 1, 2, 3)
+    *
+    *    val ys = Set(
+    *               List(1, 2, 3),
+    *               List(3, 2, 1)
+    *             ).flatten
+    *    // ys == Set(1, 2, 3)
+    *    }}}
+    */
+  def flatten[B](implicit asVector: A => Vector[B]): Vector[B] = {
+    val build: VectorBuilder[B] = genericBuilder[B]
+    this.foreach(xs => build ++= asVector(xs))
+    build.result()
+  }
+
+  /** Transposes this $coll of traversable collections into
+    * a $coll of ${coll}s.
+    *
+    * The resulting collection's type will be guided by the
+    * static type of $coll. For example:
+    *
+    * {{{
+    *    val xs = List(
+    *               Set(1, 2, 3),
+    *               Set(4, 5, 6)).transpose
+    *    // xs == List(
+    *    //         List(1, 4),
+    *    //         List(2, 5),
+    *    //         List(3, 6))
+    *
+    *    val ys = Vector(
+    *               List(1, 2, 3),
+    *               List(4, 5, 6)).transpose
+    *    // ys == Vector(
+    *    //         Vector(1, 4),
+    *    //         Vector(2, 5),
+    *    //         Vector(3, 6))
+    * }}}
+    *
+    * @tparam B the type of the elements of each traversable collection.
+    * @return a two-dimensional $coll of ${coll}s which has as ''n''th row
+    *         the ''n''th column of this $coll.
+    * @throws IllegalArgumentException if all collections in this $coll
+    *                                  are not of the same size.
+    */
+  /*
+  def transpose[B](implicit asVector: A => Vector[B]): Vector[Vector[B]@uncheckedVariance] = {
+
+    if (isEmpty) return genericBuilder[Vector[B]].result()
+
+    def fail: Nothing = throw new IllegalArgumentException("transpose requires all collections have the same size")
+
+    val headSize: Int = asVector(this.head).size
+    val bs: IndexedSeq[VectorBuilder[B]] = IndexedSeq.fill(headSize)(genericBuilder[B])
+    this.foreach(xs => {
+      var i: Int = 0
+      asVector(xs).foreach(x => {
+        if (i >= headSize) fail
+        bs(i) += x
+        i += 1
+      })
+      if (i != headSize) fail
+    })
+    val build: VectorBuilder[Vector[B]] = genericBuilder[Vector[B]]
+    bs.foreach(b => build += b.result)
+    build.result()
+  }
+*/
+
+  // GenIterableLike
+
+  /** Constructs an Iterator for the Vector type constructor
+    *
+    * @param start Int
+    * @param end   Int
+    * @return And iterator from start to end
+    */
+
+  def iterator(start: Int, end: Int): VectorIterator[A] = {
+    if (this.transient) {
+      this.normalize(this.depth)
+      this.transient = false
     }
-    (b1.result, b2.result)
+
+    val iterator: VectorIterator[A] = new VectorIterator[A](start, end)
+    iterator.initIteratorFrom(this)
+    iterator
   }
 
-  override def flatten[@sp B >: A](implicit asTraversable: (A) => GenTraversableOnce[B]): Iterable[B] = {
-    val b: mutable.Builder[B, Iterable[B]] = newBuilder[B]
-    for (xs <- sequential)
-      b ++= asTraversable(xs).seq
-    b.result
-  }
+  def iterator: VectorIterator[A] = iterator(0, endIndex)
 
-  override def count(p: (A) => Boolean): Int = {
-    var count = 0
-    for (x <- this)
-      if (p(x)) count += 1
-    count
-  }
+  /** Constructs the Reverse Iterator for the Vector type constructor
+    *
+    * @param start Int
+    * @param end   Int
+    * @return And iterator from start to end
+    */
 
-  override def /:[B](z: B)(op: (B, A) => B): B = foldLeft(z)(op)
-
-  override def :\[B](z: B)(op: (A, B) => B): B = foldRight(z)(op)
-
-  override def foldLeft[B](z: B)(op: (B, A) => B): B = {
-    var result: B = z
-    this foreach (x => result = op(result, x))
-    result
-  }
-
-  override def reduceLeft[B >: A](op: (B, A) => B): B = {
-    if (isEmpty)
-      throw new UnsupportedOperationException("empty.reduceLeft")
-
-    var first = true
-    var acc: B = 0.asInstanceOf[B]
-
-    for (x <- self) {
-      if (first) {
-        acc = x
-        first = false
-      }
-      else acc = op(acc, x)
+  def reverseiterator(start: Int, end: Int): VectorReverseIterator[A] = {
+    if (this.transient) {
+      this.normalize(this.depth)
+      this.transient = false
     }
-    acc
+    val reverseiterator: VectorReverseIterator[A] = new VectorReverseIterator[A](start, end)
+    reverseiterator.initIteratorFrom(this)
+    reverseiterator
   }
 
-  override def reduceLeftOption[B >: A](op: (B, A) => B): Option[B] = if (isEmpty) None else Some(reduceLeft(op))
+  def reverseiterator: VectorReverseIterator[A] = reverseiterator(0, endIndex)
 
-  override def reduceRightOption[B >: A](op: (A, B) => B): Option[B] = if (isEmpty) None else Some(reduceRight(op))
-
-  override def reduce[A1 >: A](op: (A1, A1) => A1): A1 = reduceLeft(op)
-
-  override def reduceOption[A1 >: A](op: (A1, A1) => A1): Option[A1] = reduceLeftOption(op)
-
-  override def fold[A1 >: A](z: A1)(op: (A1, A1) => A1): A1 = foldLeft(z)(op)
-
-  override def aggregate[B](z: => B)(seqop: (B, A) => B, combop: (B, B) => B): B = foldLeft(z)(seqop)
-
-  override def sum[B >: A](implicit num: Numeric[B]): B = foldLeft(num.zero)(num.plus)
-
-  override def product[B >: A](implicit num: Numeric[B]): B = foldLeft(num.one)(num.times)
-
-  override def min[B >: A](implicit cmp: Ordering[B]): A = {
-    if (isEmpty)
-      throw new UnsupportedOperationException("empty.min")
-
-    reduceLeft((x, y) => if (cmp.lteq(x, y)) x else y)
-  }
-
-  override def max[B >: A](implicit cmp: Ordering[B]): A = {
-    if (isEmpty)
-      throw new UnsupportedOperationException("empty.max")
-
-    reduceLeft((x, y) => if (cmp.gteq(x, y)) x else y)
-  }
+  /** Checks if the other iterable collection contains the same elements in the same order as this $coll.
+    *
+    * @param that the collection to compare with.
+    * @tparam B the type of the elements of collection `that`.
+    * @return `true`, if both collections contain the same elements in the same order, `false` otherwise.
+    * @usecase def sameElements(that: GenIterable[A]): Boolean
+    * @inheritdoc
+    *
+    * $orderDependent
+    * $willNotTerminateInf
+    * @param that the collection to compare with.
+    * @return `true`, if both collections contain the same elements in the same order, `false` otherwise.
+    */
+  def sameElements[B >: A](that: Vector[B]): Boolean = this.corresponds(that)((x, y) => x == y)
 
 
-  override def maxBy[B](f: (A) => B)(implicit cmp: Ordering[B]): A = {
-    if (isEmpty)
-      throw new UnsupportedOperationException("empty.maxBy")
+  // GenTraversableLike
 
-    var maxF: B = null.asInstanceOf[B]
-    var maxElem: A = null.asInstanceOf[A]
-    var first = true
+  /** Optionally selects the first element.
+    * $orderDependent
+    *
+    * @return the first element of this $coll if it is nonempty,
+    *         `None` if it is empty.
+    */
+  final def headOption: Option[A] = if (isEmpty) None else Some(this.head)
 
-    for (elem <- self) {
-      val fx = f(elem)
-      if (first || cmp.gt(fx, maxF)) {
-        maxElem = elem
-        maxF = fx
-        first = false
-      }
+  /** Tests whether this $coll can be repeatedly traversed.
+    *
+    * @return `true`
+    */
+  final def isTraversableAgain: Boolean = true
+
+  /** Selects all elements except the first.
+    * $orderDependent
+    *
+    * @return a $coll consisting of all elements of this $coll
+    *         except the first one.
+    * @throws UnsupportedOperationException if the $coll is empty.
+    */
+  final def tail: Vector[A] = this.drop(1)
+
+  /** Selects the last element.
+    * $orderDependent
+    *
+    * @return The last element of this $coll.
+    * @throws NoSuchElementException If the $coll is empty.
+    */
+  final def last: A = if(this.isEmpty) throw new NoSuchElementException else this(this.length - 1)
+
+  /** Optionally selects the last element.
+    * $orderDependent
+    *
+    * @return the last element of this $coll$ if it is nonempty,
+    *         `None` if it is empty.
+    */
+  final def lastOption: Option[A] = if(this.isEmpty) None else Some(this(this.length - 1))
+
+  /** Selects all elements except the last.
+    * $orderDependent
+    *
+    * @return a $coll consisting of all elements of this $coll
+    *         except the last one.
+    * @throws UnsupportedOperationException if the $coll is empty.
+    */
+  final def init: Vector[A] = take(this.length - 1)
+
+  /** Computes a prefix scan of the elements of the collection.
+    *
+    * Note: The neutral element `z` may be applied more than once.
+    *
+    * @tparam B    element type of the resulting collection
+    * @param z   neutral element for the operator `op`
+    * @param op  the associative operator for the scan
+    * @return a new $coll containing the prefix scan of the elements in this $coll
+    */
+  def scan[B >: A](z: B)(op: (B, B) => B): Vector[B] = scanLeft(z)(op) //TODO Maybe use a recursive method?
+
+  /** Produces a collection containing cumulative results of applying the
+    * operator going left to right.
+    *
+    * $willNotTerminateInf
+    * $orderDependent
+    *
+    * @tparam B    the type of the elements in the resulting collection
+    * @param z  the initial value
+    * @param op the binary operator applied to the intermediate result and the element
+    * @return collection with intermediate results
+    */
+  def scanLeft[B](z: B)(op: (B, A) => B): Vector[B] = {
+    val build: VectorBuilder[B] = genericBuilder[B]
+    val forward: VectorIterator[A] = this.iterator
+    var acc: B = z
+    while (forward.hasNext) {
+      acc = op(acc,forward.next())
+      build += acc
     }
-    maxElem
+    build.result()
   }
 
-  override def minBy[B](f: (A) => B)(implicit cmp: Ordering[B]): A = {
-    if (isEmpty)
-      throw new UnsupportedOperationException("empty.minBy")
-
-    var minF: B = null.asInstanceOf[B]
-    var minElem: A = null.asInstanceOf[A]
-    var first = true
-
-    for (elem <- self) {
-      val fx = f(elem)
-      if (first || cmp.lt(fx, minF)) {
-        minElem = elem
-        minF = fx
-        first = false
-      }
+  /** Produces a collection containing cumulative results of applying the operator going right to left.
+    * The head of the collection is the last cumulative result.
+    * $willNotTerminateInf
+    * $orderDependent
+    *
+    * Example:
+    * {{{
+    *    Vector(1, 2, 3, 4).scanRight(0)(_ + _) == Vector(0, 4, 7, 9, 10)
+    * }}}
+    *
+    * @tparam B    the type of the elements in the resulting collection
+    * @tparam That the actual type of the resulting collection
+    * @param z  the initial value
+    * @param op the binary operator applied to the intermediate result and the element
+    * @return collection with intermediate results
+    */
+  def scanRight[B, That](z: B)(op: (A, B) => B): Vector[B] = {
+    val build: VectorBuilder[B] = genericBuilder[B]
+    val backward: VectorReverseIterator[A] = this.reverseiterator
+    var acc: B = z
+    while (backward.hasNext) {
+      acc = op(acc,backward.next())
+      build += acc
     }
-    minElem
+    build.result()
   }
 
-  override def toArray[@sp B >: A](implicit ev: ClassTag[B]): Array[B] = {
-    if (isTraversableAgain) {
-      val result = new Array[B](size)
-      copyToArray(result, 0)
-      result
+  /** Builds a new collection by applying a function to all elements of this $coll.
+    *
+    * @param f the function to apply to each element.
+    * @tparam B    the element type of the returned collection.
+    * @return a new collection of type `That` resulting from applying the given function
+    *         `f` to each element of this $coll and collecting the results.
+    * @usecase def map[B](f: A => B): $Coll[B]
+    * @inheritdoc
+    * @return a new $coll resulting from applying the given function
+    *         `f` to each element of this $coll and collecting the results.
+    */
+  def map[B](f: A => B): Vector[B] = {
+    val build = genericBuilder[B]
+    val forward = this.iterator
+    while(forward.hasNext) build += f(forward.next())
+    build.result()
+  }
+
+  /** Builds a new collection by applying a partial function to all elements of this $coll
+    * on which the function is defined.
+    *
+    * @param pf the partial function which filters and maps the $coll.
+    * @tparam B    the element type of the returned collection.
+    * @return a new collection of type `That` resulting from applying the partial function
+    *         `pf` to each element on which it is defined and collecting the results.
+    *         The order of the elements is preserved.
+    * @usecase def collect[B](pf: PartialFunction[A, B]): $Coll[B]
+    * @inheritdoc
+    *
+    * $collectExample
+    * @return a new $coll resulting from applying the given partial function
+    *         `pf` to each element on which it is defined and collecting the results.
+    *         The order of the elements is preserved.
+    */
+  def collect[B](pf: PartialFunction[A, B]): Vector[B] = {
+    val build: VectorBuilder[B] = genericBuilder[B]
+    val forward: VectorIterator[A] = this.iterator
+    while(forward.hasNext) {
+      val x: A = forward.next()
+      if(pf.isDefinedAt(x)) build += pf(x)
     }
-    else toBuffer.toArray
+    build.result()
   }
 
-  override def toMap[T, U](implicit ev: <:<[A, (T, U)]): Map[T, U] = {
-    val b = immutable.Map.newBuilder[T, U]
-    for (x <- self)
-      b += x
-    b.result()
+  /** Builds a new collection by applying a function to all elements of this $coll
+    * and using the elements of the resulting collections.
+    *
+    * @param f the function to apply to each element.
+    * @tparam B    the element type of the returned collection.
+    * @return a new collection of type `That` resulting from applying the given collection-valued function
+    *         `f` to each element of this $coll and concatenating the results.
+    * @usecase def flatMap[B](f: A => GenTraversableOnce[B]): $Coll[B]
+    * @inheritdoc
+    *
+    * For example:
+    *
+    * {{{
+    *      def getWords(lines: Seq[String]): Seq[String] = lines flatMap (line => line split "\\W+")
+    *    }}}
+    *
+    * The type of the resulting collection is guided by the static type of $coll. This might
+    * cause unexpected results sometimes. For example:
+    *
+    * {{{
+    *      // lettersOf will return a Seq[Char] of likely repeated letters, instead of a Set
+    *      def lettersOf(words: Seq[String]) = words flatMap (word => word.toSet)
+    *
+    *      // lettersOf will return a Set[Char], not a Seq
+    *      def lettersOf(words: Seq[String]) = words.toSet flatMap (word => word.toSeq)
+    *
+    *      // xs will be an Iterable[Int]
+    *      val xs = Map("a" -> List(11,111), "b" -> List(22,222)).flatMap(_._2)
+    *
+    *      // ys will be a Map[Int, Int]
+    *      val ys = Map("a" -> List(1 -> 11,1 -> 111), "b" -> List(2 -> 22,2 -> 222)).flatMap(_._2)
+    *    }}}
+    * @return a new $coll resulting from applying the given collection-valued function
+    *         `f` to each element of this $coll and concatenating the results.
+    */
+  def flatMap[B](f: A => Vector[B]): Vector[B] = {
+    val build = genericBuilder[B]
+    val forward = this.iterator
+    while(forward.hasNext) build ++= f(forward.next())
+    build.result()
   }
 
-  override def toList: List[A] = to[List]
+  /** Returns a new $coll containing the elements from the left hand operand followed by the elements from the
+    * right hand operand. The element type of the $coll is the most specific superclass encompassing
+    * the element types of the two operands.
+    *
+    * @param that the traversable to append.
+    * @tparam B the element type of the returned collection.
+    * @return a new collection of type `That` which contains all elements
+    *         of this $coll followed by all elements of `that`.
+    */
+  def ++[B >: A : ClassTag](that: Vector[B]): Vector[B] = {
+    if (that.isEmpty) this.asInstanceOf[Vector[B]]
+    else if (this.length == 0) {
+      that.asInstanceOf[Vector[B]]
+    } else {
+      val vector: Vector[B] = new Vector[B](this.length + that.length)
+      vector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
+      vector.transient = this.transient
+      vector.concatenate(this.length, that)
+      vector.asInstanceOf[Vector[B]]
+    }
+  }
 
-  override def toIterable: Iterable[A] = toStream
-
-  override def toSeq: Seq[A] = toStream
-
-  override def toIndexedSeq: immutable.IndexedSeq[A] = to[immutable.IndexedSeq]
-
-  override def toBuffer[B >: A]: mutable.Buffer[B] = to[ArrayBuffer].asInstanceOf[mutable.Buffer[B]]
-
-  override def toSet[B >: A]: immutable.Set[B] = to[immutable.Set].asInstanceOf[immutable.Set[B]]
-
-  /* Helper Functions*/
-
-  private[Immutable] def concatenate[@sp B >: A](currentSize: Int,
-                                                 that: Vector[B]): Unit = {
+  private[Immutable] def concatenate[B >: A](currentSize: Int,
+                                             that: Vector[B]): Unit = {
     if (this.transient) {
       this.normalize(this.depth)
       this.transient = false
@@ -710,17 +1537,24 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
 
     this.focusOn(currentSize - 1)
     spire.math.max(this.depth, that.depth) match {
+
       case 1 =>
+
         val concat: Node = rebalancedLeafs(display0, that.display0.asInstanceOf[Leaf])
         initFromRoot(concat, 1)
 
       case 2 =>
+
         var d0: Leaf = null
         var d1: Node = null
+
         if (((that.focus | that.focusRelax) & -32) == 0) {
+
           d1 = that.display1
           d0 = that.display0.asInstanceOf[Leaf]
+
         } else {
+
           if (that.display1 != null)
             d1 = that.display1
           if (d1 == null)
@@ -730,6 +1564,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
 
           var concat: Node = rebalancedLeafs(this.display0, d0)
           concat = rebalanced(this.display1, concat, that.display1, 2)
+
           if (concat.length == 2)
             initFromRoot(concat(0).asInstanceOf[Node], 2)
           else
@@ -737,44 +1572,54 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
         }
 
       case 3 =>
+
         var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
+
         if ((that.focus & -32) == 0) {
           d2 = that.display2
           d1 = that.display1
           d0 = that.display0.asInstanceOf[Leaf]
         } else {
-          if (that.display2.!=(null))
+          if (that.display2 != null)
             d2 = that.display2
 
           if (d2 == null)
             d1 = that.display1
           else
             d1 = d2(0).asInstanceOf[Node]
-          if (d1.==(null))
+          if (d1 == null)
             d0 = that.display0.asInstanceOf[Leaf]
           else
             d0 = d1(0).asInstanceOf[Leaf]
         }
+
         var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, that.display2, 3)
+
         if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 3)
         else
           initFromRoot(withComputedSizes(concat, 4), 4)
+
       case 4 =>
+
         var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
         var d3: Node = null
+
         if ((that.focus & -32) == 0) {
+
           d3 = that.display3
           d2 = that.display2
           d1 = that.display1
           d0 = that.display0.asInstanceOf[Leaf]
+
         } else {
+
           if (that.display3 != null)
             d3 = that.display3
 
@@ -790,21 +1635,27 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
             d0 = that.display0.asInstanceOf[Leaf]
           else
             d0 = d1(0).asInstanceOf[Leaf]
+
         }
+
         var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
         concat = rebalanced(this.display3, concat, that.display3, 4)
+
         if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 4)
         else
           initFromRoot(withComputedSizes(concat, 5), 5)
+
       case 5 =>
+
         var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
         var d3: Node = null
         var d4: Node = null
+
         if ((that.focus & -32) == 0) {
           d4 = that.display4
           d3 = that.display3
@@ -831,23 +1682,28 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
           else
             d0 = d1(0).asInstanceOf[Leaf]
         }
+
         var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
         concat = rebalanced(this.display3, concat, d3, 4)
         concat = rebalanced(this.display4, concat, d4, 5)
+
         if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 5)
         else
           initFromRoot(withComputedSizes(concat, 6), 6)
+
       case 6 =>
+
         var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
         var d3: Node = null
         var d4: Node = null
         var d5: Node = null
-        if (that.focus.&(-32) == 0) {
+
+        if ((that.focus & -32) == 0) {
           d5 = that.display5
           d4 = that.display4
           d3 = that.display3
@@ -855,42 +1711,45 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
           d1 = that.display1
           d0 = that.display0.asInstanceOf[Leaf]
         } else {
-          if (that.display5.!=(null))
+
+          if (that.display5 != null)
             d5 = that.display5
-          else
-            ()
-          if (d5.==(null))
+          if (d5 == null)
             d4 = that.display4
           else
             d4 = d5(0).asInstanceOf[Node]
-          if (d4.==(null))
+          if (d4 == null)
             d3 = that.display3
           else
             d3 = d4(0).asInstanceOf[Node]
-          if (d3.==(null))
+          if (d3 == null)
             d2 = that.display2
           else
             d2 = d3(0).asInstanceOf[Node]
-          if (d2.==(null))
+          if (d2 == null)
             d1 = that.display1
           else
             d1 = d2(0).asInstanceOf[Node]
-          if (d1.==(null))
+          if (d1 == null)
             d0 = that.display0.asInstanceOf[Leaf]
           else
             d0 = d1(0).asInstanceOf[Leaf]
         }
+
         var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
         concat = rebalanced(this.display3, concat, d3, 4)
         concat = rebalanced(this.display4, concat, d4, 5)
         concat = rebalanced(this.display5, concat, that.display5, 6)
+
         if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 6)
         else
           initFromRoot(withComputedSizes(concat, 7), 7)
+
       case 7 =>
+
         var d0: Leaf = null
         var d1: Node = null
         var d2: Node = null
@@ -898,7 +1757,9 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
         var d4: Node = null
         var d5: Node = null
         var d6: Node = null
-        if (that.focus.&(-32) == 0) {
+
+        if ((that.focus & -32) == 0) {
+
           d6 = that.display6
           d5 = that.display5
           d4 = that.display4
@@ -906,35 +1767,38 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
           d2 = that.display2
           d1 = that.display1
           d0 = that.display0.asInstanceOf[Leaf]
+
         } else {
-          if (that.display6.!=(null))
+
+          if (that.display6 != null)
             d6 = that.display6
 
-          if (d6.==(null))
+          if (d6 == null)
             d5 = that.display5
           else
             d5 = d6(0).asInstanceOf[Node]
-          if (d5.==(null))
+          if (d5 == null)
             d4 = that.display4
           else
             d4 = d5(0).asInstanceOf[Node]
-          if (d4.==(null))
+          if (d4 == null)
             d3 = that.display3
           else
             d3 = d4(0).asInstanceOf[Node]
-          if (d3.==(null))
+          if (d3 == null)
             d2 = that.display2
           else
             d2 = d3(0).asInstanceOf[Node]
-          if (d2.==(null))
+          if (d2 == null)
             d1 = that.display1
           else
             d1 = d2(0).asInstanceOf[Node]
-          if (d1.==(null))
+          if (d1 == null)
             d0 = that.display0.asInstanceOf[Leaf]
           else
             d0 = d1(0).asInstanceOf[Leaf]
         }
+
         var concat: Node = rebalancedLeafs(this.display0, d0)
         concat = rebalanced(this.display1, concat, d1, 2)
         concat = rebalanced(this.display2, concat, d2, 3)
@@ -942,43 +1806,45 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
         concat = rebalanced(this.display4, concat, d4, 5)
         concat = rebalanced(this.display5, concat, d5, 6)
         concat = rebalanced(this.display6, concat, that.display6, 7)
+
         if (concat.length == 2)
           initFromRoot(concat(0).asInstanceOf[Node], 7)
         else
           initFromRoot(withComputedSizes(concat, 8), 8)
+
       case _ => throw new IllegalStateException("depth = " + spire.math.max(this.depth, that.depth).toString)
     }
   }
 
-  private def rebalanced[@sp B >: A : ClassTag](displayLeft: Node,
-                                     concat: Node,
-                                     displayRight: Node,
-                                     currentDepth: Int): Node = {
+  private def rebalanced[B >: A](displayLeft: Node,
+                                 concat: Node,
+                                 displayRight: Node,
+                                 currentDepth: Int)(implicit ct: ClassTag[B]): Node = {
     val leftLength: Int = {
-        if (displayLeft == null)
-          0
-        else
-          displayLeft.length - 1
-      }
+      if (displayLeft == null)
+        0
+      else
+        displayLeft.length - 1
+    }
 
     val concatLength: Int = {
-        if (concat == null)
-          0
-        else
-          concat.length - 1
-      }
+      if (concat == null)
+        0
+      else
+        concat.length - 1
+    }
 
     val rightLength: Int = {
-        if (displayRight == null)
-          0
-        else
-          displayRight.length - 1
-      }
+      if (displayRight == null)
+        0
+      else
+        displayRight.length - 1
+    }
 
     val branching: Int = computeBranching(displayLeft, concat, displayRight, currentDepth)
 
-    val top: Node = new Node(branching >> 10 + (if((branching & 1 << 10 - 1) == 0) 1 else 2))
-    var mid: Node = new Node(if((branching >> 10) == 0) (branching + 31) >> 5 + 1 else 33)
+    val top: Node = new Node(branching >> 10 + (if ((branching & 1 << 10 - 1) == 0) 1 else 2))
+    var mid: Node = new Node(if ((branching >> 10) == 0) (branching + 31) >> 5 + 1 else 33)
 
     var bot: Node = null
     var iSizes: Int = 0
@@ -1021,11 +1887,11 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
       while (i < displayEnd) {
         val displayValue: Node = currentDisplay(i).asInstanceOf[Node]
         val displayValueEnd: Int = {
-            if (currentDepth == 2)
-              displayValue.length
-            else
-              displayValue.length - 1
-          }
+          if (currentDepth == 2)
+            displayValue.length
+          else
+            displayValue.length - 1
+        }
         if (((iBot | j) == 0) && (displayValueEnd == 32)) {
           if ((currentDepth != 2) && (bot != null)) {
             withComputedSizes(bot, currentDepth - 1)
@@ -1043,7 +1909,7 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
               withComputedSizes(bot, currentDepth - 1)
 
             bot = new Node(
-              spire.math.min(branching -(iTop << 10) - (iMid << 5), 32)
+              spire.math.min(branching - (iTop << 10) - (iMid << 5), 32)
                 + (if (currentDepth == 2) 0 else 1)
             )
             mid.update(iMid, bot)
@@ -1092,9 +1958,9 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
     top
   }
 
-  private def rebalancedLeafs[@sp B >: A](displayLeft: Array[B],
-                                          displayRight: Array[B]
-                                         ): Node = {
+  private def rebalancedLeafs[B >: A](displayLeft: Array[B],
+                                      displayRight: Array[B]
+                                     ): Node = {
     val leftLength = displayLeft.length
     val rightLength = displayRight.length
 
@@ -1128,10 +1994,10 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
     }
   }
 
-  private def computeBranching[@sp B >: A](displayLeft: Node,
-                                           concat: Array[B],
-                                           displayRight: Node,
-                                           currentDepth: Int): Int = {
+  private def computeBranching(displayLeft: Node,
+                               concat: Node,
+                               displayRight: Node,
+                               currentDepth: Int): Int = {
     val leftLength =
       if (displayLeft == null)
         0
@@ -1196,221 +2062,90 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
     branching
   }
 
-  private[Immutable] def append[@sp B >: A: ClassTag](elem: B, _endIndex: Int): Unit = {
-    if (focusStart.+(focus).^(_endIndex - 1) >= 32)
-      normalizeAndFocusOn(_endIndex - 1)
+  /** Selects all elements of this $coll which satisfy a predicate.
+    *
+    * @param p the predicate used to test elements.
+    * @return a new $coll consisting of all elements of this $coll that satisfy the given
+    *         predicate `p`. Their order is preserved.
+    */
+  def filter(p: A => Boolean): Vector[A] = {
+    val build: VectorBuilder[A] = newBuilder
+    val forward: VectorIterator[A] = this.iterator
+    while(forward.hasNext) {
+      val x: A = forward.next()
+      if(p(x)) build += x
+    }
+    build.result()
+  }
 
-    val elemIndexInBlock = _endIndex.-(focusStart).&(31)
-    if (elemIndexInBlock != 0)
-      appendOnCurrentBlock(elem, elemIndexInBlock)
+  /** Selects all elements of this $coll which do not satisfy a predicate.
+    *
+    * @param p the predicate used to test elements.
+    * @return a new $coll consisting of all elements of this $coll that do not satisfy the given
+    *         predicate `p`. Their order is preserved.
+    */
+  def filterNot(p: A => Boolean): Vector[A] = this.filter(x => !p(x))
+
+  /** Partitions this $coll in two ${coll}s according to a predicate.
+    *
+    * @param p the predicate on which to partition.
+    * @return a pair of ${coll}s: the first $coll consists of all elements that
+    *         satisfy the predicate `p` and the second $coll consists of all elements
+    *         that don't. The relative order of the elements in the resulting ${coll}s
+    *         may not be preserved.
+    */
+  def partition(p: A => Boolean): (Vector[A], Vector[A]) = {
+    val build1: VectorBuilder[A] = newBuilder
+    val build2: VectorBuilder[A] = newBuilder
+    val forward: VectorIterator[A] = this.iterator
+    while(forward.hasNext) {
+      val x: A = forward.next()
+      if(p(x)) build1 += x else build2 += x
+    }
+    (build1.result(), build2.result())
+  }
+
+  /** Partitions this $coll into a map of ${coll}s according to some discriminator function.
+    *
+    * Note: this method is not re-implemented by views. This means
+    * when applied to a view it will always force the view and
+    * return a new $coll.
+    *
+    * @param f the discriminator function.
+    * @tparam K the type of keys returned by the discriminator function.
+    * @return A map from keys to ${coll}s such that the following invariant holds:
+    *         {{{
+    *                                   (xs groupBy f)(k) = xs filter (x => f(x) == k)
+    *         }}}
+    *         That is, every key `k` is bound to a $coll of those elements `x`
+    *         for which `f(x)` equals `k`.
+    *
+    */
+  def groupBy[K](f: A => K): mutable.Map[K, Vector[A]] = {
+    val group: mutable.HashMap[K, Vector[A]] = new mutable.HashMap[K, Vector[A]] {
+      override def default(k: K) = new Vector[A](0)
+    }
+    val forward: VectorIterator[A] = this.iterator
+    while (forward.hasNext) {
+      val x: A = forward.next()
+      group(f(x)) :+ x
+    }
+    group
+  }
+
+  /** Selects first ''n'' elements.
+    * $orderDependent
+    *
+    * @param  n the number of elements to take from this $coll.
+    * @return a $coll consisting only of the first `n` elements of this $coll,
+    *         or else the whole $coll, if it has less than `n` elements.
+    */
+  def take(n: Int): Vector[A] = {
+    if (n <= 0) Vector.empty
+    else if (n < endIndex)
+      takeFront0(n)
     else
-      appendBackNewBlock(elem, elemIndexInBlock)
-  }
-
-  private def appendOnCurrentBlock[@sp B >: A](elem: B,
-                                               elemIndexInBlock: Int): Unit = {
-    focusEnd = endIndex
-    val d0 = new Leaf(elemIndexInBlock.+(1))
-    System.arraycopy(display0, 0, d0, 0, elemIndexInBlock)
-    d0.update(elemIndexInBlock, elem.asInstanceOf[A])
-    display0 = d0
-    makeTransientIfNeeded()
-  }
-
-  private def appendBackNewBlock[@sp B >: A](elem: B,
-                                             elemIndexInBlock: Int)(implicit m: ClassTag[B]): Unit = {
-    val oldDepth = depth
-    val newRelaxedIndex = endIndex.-(1).-(focusStart).+(focusRelax)
-    val focusJoined = focus.|(focusRelax)
-    val xor = newRelaxedIndex.^(focusJoined)
-    val _transient = transient
-    setupNewBlockInNextBranch(xor, _transient)(m.asInstanceOf[ClassTag[A]])
-    if (oldDepth == depth) {
-      var i =
-        if (xor < (1 << 10))
-          2
-        else if (xor < (1 << 15))
-          3
-        else if (xor < (1 << 20))
-          4
-        else if (xor < (1 << 25))
-          5
-        else if (xor < (1 << 30))
-          6
-        else if (xor < (1 << 35))
-          7
-        else
-          7
-      if (i < oldDepth) {
-        val _focusDepth = focusDepth
-        var display: Node = i match {
-          case 2 => display2
-          case 3 => display3
-          case 4 => display4
-          case 5 => display5
-          case 6 => display6
-        }
-        do {
-          val displayLen = display.length - 1
-          val newSizes: Array[Int] =
-            if (i.>=(_focusDepth))
-              makeTransientSizes(display(displayLen).asInstanceOf[Array[Int]],
-                displayLen - 1)
-            else
-              null
-          val newDisplay = new Node(display.length)
-          System.arraycopy(display, 0, newDisplay, 0, displayLen - 1)
-          if (i >= _focusDepth)
-            newDisplay.update(displayLen, newSizes)
-
-          i match {
-            case 2 =>
-              display2 = newDisplay
-              display = display3
-            case 3 =>
-              display3 = newDisplay
-              display = display4
-            case 4 =>
-              display4 = newDisplay
-              display = display5
-            case 5 =>
-              display5 = newDisplay
-              display = display6
-            case 6 => display6 = newDisplay
-          }
-          i.+=(1)
-        } while (i < oldDepth)
-      }
-    }
-    if (oldDepth == focusDepth)
-      initFocus(endIndex - 1, 0, endIndex, depth, 0)
-    else
-      initFocus(endIndex.-(1), endIndex.-(1), endIndex, 1, newRelaxedIndex.&(-32))
-    display0.update(elemIndexInBlock, elem.asInstanceOf[A])
-    transient = true
-  }
-
-  private[Immutable] def makeTransientIfNeeded(): Unit = {
-    val _depth = depth
-    if (_depth > 1 && transient.`unary_!`) {
-      copyDisplaysAndNullFocusedBranch(_depth, focus.|(focusRelax))
-      transient = true
-    }
-  }
-
-  private def createSingletonVector[@sp B >: A : ClassTag](elem: B): Vector[B] = {
-    val resultVector = new Vector[B](1)
-    resultVector.initSingleton(elem)
-    resultVector
-  }
-
-  private[Immutable] def normalizeAndFocusOn(index: Int): Unit = {
-    if (transient) {
-      normalize(depth)
-      transient = false
-    }
-    focusOn(index)
-  }
-
-  private[Immutable] def prepend[@sp B >: A: ClassTag](elem: B): Unit = {
-
-    if (focusStart != 0 || (focus & -32) != 0)
-      normalizeAndFocusOn(0)
-
-    val d0 = display0
-    if (d0.length < 32)
-      prependOnCurrentBlock(elem, d0.asInstanceOf[Array[B]])
-    else
-      prependFrontNewBlock(elem)
-  }
-
-  private def prependOnCurrentBlock[@sp B >: A](elem: B,
-                                                oldD0: Array[B]): Unit = {
-    val newLen = oldD0.length + 1
-    focusEnd = newLen
-    val newD0 = new Leaf(newLen)
-    newD0.update(0, elem.asInstanceOf[A])
-    System.arraycopy(oldD0, 0, newD0, 1, newLen.-(1))
-    display0 = newD0
-    makeTransientIfNeeded()
-  }
-  private def prependFrontNewBlock[@sp B >: A](elem: B)(implicit m: ClassTag[B]): Unit = {
-    var currentDepth = focusDepth
-    if (currentDepth == 1)
-      currentDepth += 1
-
-    var display = currentDepth match {
-      case 1 =>
-        currentDepth = 2
-        display1
-      case 2 => display1
-      case 3 => display2
-      case 4 => display3
-      case 5 => display4
-      case 6 => display5
-      case 7 => display6
-    }
-    while ((display != null).&&(display.length.==(33))) {
-      currentDepth += 1
-      currentDepth match {
-        case 2 => display = display1
-        case 3 => display = display2
-        case 4 => display = display3
-        case 5 => display = display4
-        case 6 => display = display5
-        case 7 => display = display6
-        case _ => throw new IllegalStateException()
-      }
-    }
-    val oldDepth = depth
-    val _transient = transient
-    setupNewBlockInInitBranch(currentDepth, _transient)(m.asInstanceOf[ClassTag[A]])
-    if (oldDepth.==(depth)) {
-      var i = currentDepth
-      if (i.<(oldDepth)) {
-        val _focusDepth = focusDepth
-        var display: Node = i match {
-          case 2 => display2
-          case 3 => display3
-          case 4 => display4
-          case 5 => display5
-          case 6 => display6
-        }
-        do {
-          val displayLen = display.length.-(1)
-          val newSizes: Array[Int] =
-            if (i.>=(_focusDepth))
-              makeTransientSizes(display(displayLen).asInstanceOf[Array[Int]],
-                1)
-            else
-              null
-          val newDisplay = new Node(display.length)
-          System.arraycopy(display, 0, newDisplay, 0, displayLen.-(1))
-          if (i.>=(_focusDepth))
-            newDisplay.update(displayLen, newSizes)
-
-          i match {
-            case 2 =>
-              display2 = newDisplay
-              display = display3
-            case 3 =>
-              display3 = newDisplay
-              display = display4
-            case 4 =>
-              display4 = newDisplay
-              display = display5
-            case 5 =>
-              display5 = newDisplay
-              display = display6
-            case 6 => display6 = newDisplay
-          }
-          i += 1
-        } while (i.<(oldDepth))
-      }
-    }
-    initFocus(0, 0, 1, 1, 0)
-    display0.update(0, elem.asInstanceOf[A])
-    transient = true
+      this
   }
 
   private def takeFront0(n: Int): Vector[A] = {
@@ -1488,6 +2223,21 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
     vector
   }
 
+  /** Selects all elements except first ''n'' ones.
+    * $orderDependent
+    *
+    * @param  n the number of elements to drop from this $coll.
+    * @return a $coll consisting of all elements of this $coll except the first `n` ones, or else the
+    *         empty $coll, if this $coll has less than `n` elements.
+    */
+  def drop(n: Int): Vector[A] = {
+    if (n <= 0) this
+    else if (n < endIndex)
+      dropFront0(n)
+    else
+      Vector.empty
+  }
+
   private def dropFront0(n: Int): Vector[A] = {
 
     if (transient) {
@@ -1561,6 +2311,732 @@ final class Vector[@sp +A](override private[Immutable] val endIndex: Int)(implic
     vec
   }
 
+  /** Selects an interval of elements.  The returned collection is made up
+    * of all elements `x` which satisfy the invariant:
+    * {{{
+    *    from <= indexOf(x) < until
+    * }}}
+    * $orderDependent
+    *
+    * @param from  the lowest index to include from this $coll.
+    * @param until the lowest index to EXCLUDE from this $coll.
+    * @return a $coll containing the elements greater than or equal to
+    *         index `from` extending up to (but not including) index `until`
+    *         of this $coll.
+    */
+  def slice(from: Int, until: Int): Vector[A] = take(until).drop(from)
 
+  /** Splits this $coll into two at a given position.
+    * Note: `c splitAt n` is equivalent to (but possibly more efficient than)
+    * `(c take n, c drop n)`.
+    * $orderDependent
+    *
+    * @param n the position at which to split.
+    * @return a pair of ${coll}s consisting of the first `n`
+    *         elements of this $coll, and the other elements.
+    */
+  def splitAt(n: Int): (Vector[A], Vector[A]) = (this take n, this drop n)
+
+  /** Takes longest prefix of elements that satisfy a predicate.
+    * $orderDependent
+    *
+    * @param   p The predicate used to test elements.
+    * @return the longest prefix of this $coll whose elements all satisfy
+    *         the predicate `p`.
+    */
+  def takeWhile(p: A => Boolean): Vector[A] = take(prefixLength(p))
+
+  /** Drops longest prefix of elements that satisfy a predicate.
+    * $orderDependent
+    *
+    * @param   p The predicate used to test elements.
+    * @return the longest suffix of this $coll whose first element
+    *         does not satisfy the predicate `p`.
+    */
+  def dropWhile(p: A => Boolean): Vector[A] = drop(prefixLength(p))
+
+  /** Splits this $coll into a prefix/suffix pair according to a predicate.
+    *
+    * Note: `c span p`  is equivalent to (but possibly more efficient than)
+    * `(c takeWhile p, c dropWhile p)`, provided the evaluation of the
+    * predicate `p` does not cause any side-effects.
+    * $orderDependent
+    *
+    * @param p the test predicate
+    * @return a pair consisting of the longest prefix of this $coll whose
+    *         elements all satisfy `p`, and the rest of this $coll.
+    */
+  def span(p: A => Boolean): (Vector[A], Vector[A]) = (this takeWhile p, this dropWhile p)
+
+  /** Defines the prefix of this object's `toString` representation.
+    *
+    * @return a string representation which starts the result of `toString`
+    *         applied to this $coll. By default the string prefix is the
+    *         simple name of the collection class $coll.
+    */
+  def stringPrefix: String
+
+
+  // Parallelizable
+
+  /** Returns a parallel implementation of this collection.
+    *
+    * For most collection types, this method creates a new parallel collection by copying
+    * all the elements. For these collection, `par` takes linear time. Mutable collections
+    * in this category do not produce a mutable parallel collection that has the same
+    * underlying dataset, so changes in one collection will not be reflected in the other one.
+    *
+    * Specific collections (e.g. `ParArray` or `mutable.ParHashMap`) override this default
+    * behaviour by creating a parallel collection which shares the same underlying dataset.
+    * For these collections, `par` takes constant or sublinear time.
+    *
+    * All parallel collections return a reference to themselves.
+    *
+    * @return a parallel implementation of this collection
+    */
+/*  def par: ParRepr = {
+    val cb = parCombiner
+    for (x <- seq) cb += x
+    cb.result()
+  }*/
+
+  /** The default `par` implementation uses the combiner provided by this method
+    * to create a new parallel collection.
+    *
+    * @return a combiner for the parallel collection of type `ParRepr`
+    */
+/*
+  protected[this] def parCombiner: Combiner[A, ParRepr]
+*/
+
+  // GenTraversableOnce
+
+  /** Tests whether this $coll is known to have a finite size.
+    * All strict collections are known to have finite size. For a non-strict
+    * collection such as `Stream`, the predicate returns `'''true'''` if all
+    * elements have been computed. It returns `'''false'''` if the stream is
+    * not yet evaluated to the end. Non-empty Iterators usually return
+    * `'''false'''` even if they were created from a collection with a known
+    * finite size.
+    *
+    * Note: many collection methods will not work on collections of infinite sizes.
+    * The typical failure mode is an infinite loop. These methods always attempt a
+    * traversal without checking first that `hasDefiniteSize` returns `'''true'''`.
+    * However, checking `hasDefiniteSize` can provide an assurance that size is
+    * well-defined and non-termination is not a concern.
+    *
+    * @return `'''true'''` if this collection is known to have finite size,
+    *         `'''false'''` otherwise.
+    */
+  def hasDefiniteSize: Boolean = true
+
+  /** The size of this $coll, if it can be cheaply computed
+    *
+    * @return the number of elements in this $coll, or -1 if the size cannot be determined cheaply
+    */
+  protected[collection] def sizeHintIfCheap: Int = this.length
+
+  /** Reduces the elements of this $coll using the specified associative binary operator.
+    *
+    * $undefinedorder
+    *
+    * @tparam B A type parameter for the binary operator, a supertype of `A`.
+    * @param op A binary operator that must be associative.
+    * @return The result of applying reduce operator `op` between all the elements if the $coll is nonempty.
+    * @throws UnsupportedOperationException
+    * if this $coll is empty.
+    */
+  def reduce[B >: A](op: (B, B) => B): B = {
+    val forward: VectorIterator[A] = this.iterator
+    var acc: B = forward.next()
+    while(forward.hasNext) acc = op(acc, forward.next())
+    acc
+  }
+
+  /** Reduces the elements of this $coll, if any, using the specified
+    * associative binary operator.
+    *
+    * $undefinedorder
+    *
+    * @tparam B A type parameter for the binary operator, a supertype of `A`.
+    * @param op A binary operator that must be associative.
+    * @return An option value containing result of applying reduce operator `op` between all
+    *         the elements if the collection is nonempty, and `None` otherwise.
+    */
+  def reduceOption[B >: A](op: (B, B) => B): Option[B] = {
+    val forward = this.iterator
+    var acc: Option[B] = if(forward.hasNext) Some(forward.next()) else None
+    while(forward.hasNext) acc = Some(op(acc, forward.next()))
+    acc
+  }
+
+  /** Folds the elements of this $coll using the specified associative
+    * binary operator.
+    *
+    * $undefinedorder
+    * $willNotTerminateInf
+    *
+    * @tparam B a type parameter for the binary operator, a supertype of `A`.
+    * @param z  a neutral element for the fold operation; may be added to the result
+    *           an arbitrary number of times, and must not change the result (e.g., `Nil` for list concatenation,
+    *           0 for addition, or 1 for multiplication).
+    * @param op a binary operator that must be associative.
+    * @return the result of applying the fold operator `op` between all the elements and `z`, or `z` if this $coll is empty.
+    */
+  final def fold[B >: A](z: B)(op: (B, B) => B): B = {
+    val forward: VectorIterator[A] = this.iterator
+    var acc: B = z
+    while(forward.hasNext) acc = op(acc, forward.next())
+    acc
+  }
+
+  /** Applies a binary operator to a start value and all elements of this $coll,
+    * going left to right.
+    *
+    * Note: `/:` is alternate syntax for `foldLeft`; `z /: xs` is the same as
+    * `xs foldLeft z`.
+    *
+    * Examples:
+    *
+    * Note that the folding function used to compute b is equivalent to that used to compute c.
+    * {{{
+    *      scala> val a = List(1,2,3,4)
+    *      a: List[Int] = List(1, 2, 3, 4)
+    *
+    *      scala> val b = (5 /: a)(_+_)
+    *      b: Int = 15
+    *
+    *      scala> val c = (5 /: a)((x,y) => x + y)
+    *      c: Int = 15
+    * }}}
+    *
+    * $willNotTerminateInf
+    * $orderDependentFold
+    *
+    * @param   z  the start value.
+    * @param   op the binary operator.
+    * @tparam  B the result type of the binary operator.
+    * @return the result of inserting `op` between consecutive elements of this $coll,
+    *         going left to right with the start value `z` on the left:
+    *         {{{
+    *                               op(...op(op(z, x_1), x_2), ..., x_n)
+    *         }}}
+    *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
+    */
+  @tailrec final def /:[B](z: B)(op: (B, A) => B): B = {
+    this.tail./:(op(this.head, z))(op)
+  }
+
+  /** Applies a binary operator to all elements of this $coll and a start value,
+    * going right to left.
+    *
+    * Note: `:\` is alternate syntax for `foldRight`; `xs :\ z` is the same as
+    * `xs foldRight z`.
+    * $willNotTerminateInf
+    * $orderDependentFold
+    *
+    * Examples:
+    *
+    * Note that the folding function used to compute b is equivalent to that used to compute c.
+    * {{{
+    *      scala> val a = List(1,2,3,4)
+    *      a: List[Int] = List(1, 2, 3, 4)
+    *
+    *      scala> val b = (a :\ 5)(_+_)
+    *      b: Int = 15
+    *
+    *      scala> val c = (a :\ 5)((x,y) => x + y)
+    *      c: Int = 15
+    *
+    * }}}
+    *
+    * @param   z  the start value
+    * @param   op the binary operator
+    * @tparam  B the result type of the binary operator.
+    * @return the result of inserting `op` between consecutive elements of this $coll,
+    *         going right to left with the start value `z` on the right:
+    *         {{{
+    *                               op(x_1, op(x_2, ... op(x_n, z)...))
+    *         }}}
+    *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
+    */
+  @tailrec
+  final def :\[B](z: B)(op: (A, B) => B): B = {
+    this.init.:\(op(this.last, z))(op)
+  }
+
+
+  /** Applies a binary operator to a start value and all elements of this $coll,
+    * going left to right.
+    *
+    * $willNotTerminateInf
+    * $orderDependentFold
+    *
+    * @param   z  the start value.
+    * @param   op the binary operator.
+    * @tparam  B the result type of the binary operator.
+    * @return the result of inserting `op` between consecutive elements of this $coll,
+    *         going left to right with the start value `z` on the left:
+    *         {{{
+    *                               op(...op(z, x_1), x_2, ..., x_n)
+    *         }}}
+    *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
+    *         Returns `z` if this $coll is empty.
+    */
+  def foldLeft[B](z: B)(op: (B, A) => B): B = {
+    val forward: VectorIterator[A] = this.iterator
+    var acc: B = z
+    while(forward.hasNext) acc = op(acc, forward.next())
+    acc
+  }
+
+  /** Applies a binary operator to all elements of this $coll and a start value,
+    * going right to left.
+    *
+    * $willNotTerminateInf
+    * $orderDependentFold
+    *
+    * @param   z  the start value.
+    * @param   op the binary operator.
+    * @tparam  B the result type of the binary operator.
+    * @return the result of inserting `op` between consecutive elements of this $coll,
+    *         going right to left with the start value `z` on the right:
+    *         {{{
+    *                               op(x_1, op(x_2, ... op(x_n, z)...))
+    *         }}}
+    *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
+    *         Returns `z` if this $coll is empty.
+    */
+  def foldRight[B](z: B)(op: (A, B) => B): B = {
+    val backward: VectorReverseIterator[A] = this.reverseiterator
+    var acc: B = z
+    while(backward.hasNext) acc = op(acc, backward.next())
+    acc
+  }
+
+  /** Aggregates the results of applying an operator to subsequent elements.
+    *
+    * This is a more general form of `fold` and `reduce`. It is similar to
+    * `foldLeft` in that it doesn't require the result to be a supertype of the
+    * element type. In addition, it allows parallel collections to be processed
+    * in chunks, and then combines the intermediate results.
+    *
+    * `aggregate` splits the $coll into partitions and processes each
+    * partition by sequentially applying `seqop`, starting with `z` (like
+    * `foldLeft`). Those intermediate results are then combined by using
+    * `combop` (like `fold`). The implementation of this operation may operate
+    * on an arbitrary number of collection partitions (even 1), so `combop` may
+    * be invoked an arbitrary number of times (even 0).
+    *
+    * As an example, consider summing up the integer values of a list of chars.
+    * The initial value for the sum is 0. First, `seqop` transforms each input
+    * character to an Int and adds it to the sum (of the partition). Then,
+    * `combop` just needs to sum up the intermediate results of the partitions:
+    * {{{
+    *    List('a', 'b', 'c').aggregate(0)({ (sum, ch) => sum + ch.toInt }, { (p1, p2) => p1 + p2 })
+    * }}}
+    *
+    * @tparam B the type of accumulated results
+    * @param z      the initial value for the accumulated result of the partition - this
+    *               will typically be the neutral element for the `seqop` operator (e.g.
+    *               `Nil` for list concatenation or `0` for summation) and may be evaluated
+    *               more than once
+    * @param seqop  an operator used to accumulate results within a partition
+    * @param combop an associative operator used to combine results from different partitions
+    */
+  def aggregate[B](z: => B)(seqop: (B, A) => B, combop: (B, B) => B): B = {
+    var acc: B = z
+    this.split.foreach(x => acc = combop(x.foldLeft(z)(seqop),acc))
+    acc
+  }
+
+  def split: Seq[VectorIterator[A]] = {
+    val remaining: Int = this.length
+    if (remaining >= 2) {
+      val _half: Int = remaining / 2
+      val _splitModulo: Int = {
+        if (remaining <= (1 << 5)) 1
+        else if (remaining <= (1 << 10)) 1 << 5
+        else if (remaining <= (1 << 15)) 1 << 10
+        else if (remaining <= (1 << 20)) 1 << 15
+        else if (remaining <= (1 << 25)) 1 << 20
+        else if (remaining <= (1 << 30)) 1 << 25
+        else if (remaining <= (1 << 35)) 1 << 30
+        else 1 << 35
+      }
+      val _halfAdjusted: Int = {
+        if (_half > _splitModulo) _half - _half % _splitModulo
+        else if (_splitModulo < remaining) _splitModulo
+        else _half
+      }
+      psplit(_halfAdjusted, remaining - _halfAdjusted)
+    } else {
+      Seq(this.iterator)
+    }
+  }
+  // TODO Need to fix
+  def psplit(sizes: Int*): Seq[VectorIterator[A]] = {
+    val splitted: ArrayBuffer[VectorIterator[A]] = new ArrayBuffer[VectorIterator[A]]
+    var currentPos: Int = this.length // - remaining
+    sizes.foreach(sz => {
+      val forward: VectorIterator[A] = new VectorIterator[A](currentPos, currentPos + sz)
+      forward.initIteratorFrom(this)
+      splitted += forward
+      currentPos += sz
+    })
+    splitted
+  }
+
+  /** Applies a binary operator to all elements of this $coll, going right to left.
+    * $willNotTerminateInf
+    * $orderDependentFold
+    *
+    * @param  op the binary operator.
+    * @tparam  B the result type of the binary operator.
+    * @return the result of inserting `op` between consecutive elements of this $coll,
+    *         going right to left:
+    *         {{{
+    *                               op(x_1, op(x_2, ..., op(x_{n-1}, x_n)...))
+    *         }}}
+    *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
+    * @throws UnsupportedOperationException if this $coll is empty.
+    */
+  def reduceRight[B >: A](op: (A, B) => B): B
+
+  /** Optionally applies a binary operator to all elements of this $coll, going left to right.
+    * $willNotTerminateInf
+    * $orderDependentFold
+    *
+    * @param  op the binary operator.
+    * @tparam  B the result type of the binary operator.
+    * @return an option value containing the result of `reduceLeft(op)` if this $coll is nonempty,
+    *         `None` otherwise.
+    */
+  def reduceLeftOption[B >: A](op: (B, A) => B): Option[B]
+
+  /** Optionally applies a binary operator to all elements of this $coll, going
+    * right to left.
+    * $willNotTerminateInf
+    * $orderDependentFold
+    *
+    * @param  op the binary operator.
+    * @tparam  B the result type of the binary operator.
+    * @return an option value containing the result of `reduceRight(op)` if this $coll is nonempty,
+    *         `None` otherwise.
+    */
+  def reduceRightOption[B >: A](op: (A, B) => B): Option[B]
+
+  /** Counts the number of elements in the $coll which satisfy a predicate.
+    *
+    * @param p the predicate  used to test elements.
+    * @return the number of elements satisfying the predicate `p`.
+    */
+  def count(p: A => Boolean): Int
+
+  /** Sums up the elements of this collection.
+    *
+    * @param   num an implicit parameter defining a set of numeric operations
+    *              which includes the `+` operator to be used in forming the sum.
+    * @tparam  A1 the result type of the `+` operator.
+    * @return the sum of all elements of this $coll with respect to the `+` operator in `num`.
+    * @usecase def sum: A
+    * @inheritdoc
+    * @return the sum of all elements in this $coll of numbers of type `Int`.
+    *         Instead of `Int`, any other type `T` with an implicit `Numeric[T]` implementation
+    *         can be used as element type of the $coll and as result type of `sum`.
+    *         Examples of such types are: `Long`, `Float`, `Double`, `BigInt`.
+    *
+    */
+  def sum[A1 >: A](implicit num: Numeric[A1]): A1
+
+  /** Multiplies up the elements of this collection.
+    *
+    * @param   num an implicit parameter defining a set of numeric operations
+    *              which includes the `*` operator to be used in forming the product.
+    * @tparam  A1 the result type of the `*` operator.
+    * @return the product of all elements of this $coll with respect to the `*` operator in `num`.
+    * @usecase def product: A
+    * @inheritdoc
+    * @return the product of all elements in this $coll of numbers of type `Int`.
+    *         Instead of `Int`, any other type `T` with an implicit `Numeric[T]` implementation
+    *         can be used as element type of the $coll and as result type of `product`.
+    *         Examples of such types are: `Long`, `Float`, `Double`, `BigInt`.
+    */
+  def product[A1 >: A](implicit num: Numeric[A1]): A1
+
+  /** Finds the smallest element.
+    *
+    * @param    ord An ordering to be used for comparing elements.
+    * @tparam   A1 The type over which the ordering is defined.
+    * @return the smallest element of this $coll with respect to the ordering `ord`.
+    * @usecase def min: A
+    * @inheritdoc
+    * @return the smallest element of this $coll
+    */
+  def min[A1 >: A](implicit ord: Ordering[A1]): A
+
+  /** Finds the largest element.
+    *
+    * @param    ord An ordering to be used for comparing elements.
+    * @tparam   A1 The type over which the ordering is defined.
+    * @return the largest element of this $coll with respect to the ordering `ord`.
+    * @usecase def max: A
+    * @inheritdoc
+    * @return the largest element of this $coll.
+    */
+  def max[A1 >: A](implicit ord: Ordering[A1]): A
+
+  /** Finds the first element which yields the largest value measured by function f.
+    *
+    * @param    cmp An ordering to be used for comparing elements.
+    * @tparam   B The result type of the function f.
+    * @param    f The measuring function.
+    * @return the first element of this $coll with the largest value measured by function f
+    *         with respect to the ordering `cmp`.
+    * @usecase def maxBy[B](f: A => B): A
+    * @inheritdoc
+    * @return the first element of this $coll with the largest value measured by function f.
+    */
+  def maxBy[B](f: A => B)(implicit cmp: Ordering[B]): A
+
+  /** Finds the first element which yields the smallest value measured by function f.
+    *
+    * @param    cmp An ordering to be used for comparing elements.
+    * @tparam   B The result type of the function f.
+    * @param    f The measuring function.
+    * @return the first element of this $coll with the smallest value measured by function f
+    *         with respect to the ordering `cmp`.
+    * @usecase def minBy[B](f: A => B): A
+    * @inheritdoc
+    * @return the first element of this $coll with the smallest value measured by function f.
+    */
+  def minBy[B](f: A => B)(implicit cmp: Ordering[B]): A
+
+  /** Tests whether a predicate holds for all elements of this $coll.
+    *
+    * $mayNotTerminateInf
+    *
+    * @param   p the predicate used to test elements.
+    * @return `true` if this $coll is empty or the given predicate `p`
+    *         holds for all elements of this $coll, otherwise `false`.
+    */
+  def forall(@deprecatedName('pred) p: A => Boolean): Boolean
+
+  /** Tests whether a predicate holds for at least one element of this $coll.
+    *
+    * $mayNotTerminateInf
+    *
+    * @param   p the predicate used to test elements.
+    * @return `true` if the given predicate `p` is satisfied by at least one element of this $coll, otherwise `false`
+    */
+  def exists(@deprecatedName('pred) p: A => Boolean): Boolean
+
+  /** Finds the first element of the $coll satisfying a predicate, if any.
+    *
+    * $mayNotTerminateInf
+    * $orderDependent
+    *
+    * @param p the predicate used to test elements.
+    * @return an option value containing the first element in the $coll
+    *         that satisfies `p`, or `None` if none exists.
+    */
+  def find(@deprecatedName('pred) p: A => Boolean): Option[A]
+
+  /** Copies the elements of this $coll to an array.
+    * Fills the given array `xs` with values of this $coll.
+    * Copying will stop once either the end of the current $coll is reached,
+    * or the end of the target array is reached.
+    *
+    * @param  xs the array to fill.
+    * @tparam B the type of the elements of the target array.
+    * @usecase def copyToArray(xs: Array[A]): Unit
+    * @inheritdoc
+    *
+    * $willNotTerminateInf
+    */
+  def copyToArray[B >: A](xs: Array[B]): Unit
+
+  /** Copies the elements of this $coll to an array.
+    * Fills the given array `xs` with values of this $coll, beginning at index `start`.
+    * Copying will stop once either the end of the current $coll is reached,
+    * or the end of the target array is reached.
+    *
+    * @param  xs    the array to fill.
+    * @param  start the starting index.
+    * @tparam B the type of the elements of the target array.
+    * @usecase def copyToArray(xs: Array[A], start: Int): Unit
+    * @inheritdoc
+    *
+    * $willNotTerminateInf
+    */
+  def copyToArray[B >: A](xs: Array[B], start: Int): Unit
+
+  /** Copies the elements of this $coll to an array.
+    * Fills the given array `xs` with at most `len` elements of
+    * this $coll, starting at position `start`.
+    * Copying will stop once either the end of the current $coll is reached,
+    * or the end of the target array is reached, or `len` elements have been copied.
+    *
+    * @param  xs    the array to fill.
+    * @param  start the starting index.
+    * @param  len   the maximal number of elements to copy.
+    * @tparam B the type of the elements of the target array.
+    * @usecase def copyToArray(xs: Array[A], start: Int, len: Int): Unit
+    * @inheritdoc
+    *
+    * $willNotTerminateInf
+    */
+  def copyToArray[B >: A](xs: Array[B], start: Int, len: Int): Unit
+
+  /** Displays all elements of this $coll in a string using start, end, and
+    * separator strings.
+    *
+    * @param start the starting string.
+    * @param sep   the separator string.
+    * @param end   the ending string.
+    * @return a string representation of this $coll. The resulting string
+    *         begins with the string `start` and ends with the string
+    *         `end`. Inside, the string representations (w.r.t. the method
+    *         `toString`) of all elements of this $coll are separated by
+    *         the string `sep`.
+    * @example `List(1, 2, 3).mkString("(", "; ", ")") = "(1; 2; 3)"`
+    */
+  def mkString(start: String, sep: String, end: String): String
+
+  /** Displays all elements of this $coll in a string using a separator string.
+    *
+    * @param sep the separator string.
+    * @return a string representation of this $coll. In the resulting string
+    *         the string representations (w.r.t. the method `toString`)
+    *         of all elements of this $coll are separated by the string `sep`.
+    * @example `List(1, 2, 3).mkString("|") = "1|2|3"`
+    */
+  def mkString(sep: String): String
+
+  /** Displays all elements of this $coll in a string.
+    *
+    * @return a string representation of this $coll. In the resulting string
+    *         the string representations (w.r.t. the method `toString`)
+    *         of all elements of this $coll follow each other without any
+    *         separator string.
+    */
+  def mkString: String
+
+  /** Converts this $coll to an array.
+    *
+    * @tparam A1 the type of the elements of the array. An `ClassTag` for
+    *            this type must be available.
+    * @return an array containing all elements of this $coll.
+    * @usecase def toArray: Array[A]
+    * @inheritdoc
+    *
+    * $willNotTerminateInf
+    * @return an array containing all elements of this $coll.
+    *         An `ClassTag` must be available for the element type of this $coll.
+    */
+  def toArray[A1 >: A : ClassTag]: Array[A1]
+
+  /** Converts this $coll to a list.
+    * $willNotTerminateInf
+    *
+    * @return a list containing all elements of this $coll.
+    */
+  def toList: List[A]
+
+  /** Converts this $coll to an indexed sequence.
+    * $willNotTerminateInf
+    *
+    * @return an indexed sequence containing all elements of this $coll.
+    */
+  def toIndexedSeq: immutable.IndexedSeq[A]
+
+  /** Converts this $coll to a stream.
+    *
+    * @return a stream containing all elements of this $coll.
+    */
+  def toStream: Stream[A]
+
+  /** Returns an Iterator over the elements in this $coll.  Will return
+    * the same Iterator if this instance is already an Iterator.
+    * $willNotTerminateInf
+    *
+    * @return an Iterator containing all elements of this $coll.
+    */
+  def toIterator: Iterator[A]
+
+  /** Uses the contents of this $coll to create a new mutable buffer.
+    * $willNotTerminateInf
+    *
+    * @return a buffer containing all elements of this $coll.
+    */
+  def toBuffer[A1 >: A]: scala.collection.mutable.Buffer[A1]
+
+  /** Converts this $coll to an unspecified Traversable.  Will return
+    * the same collection if this instance is already Traversable.
+    * $willNotTerminateInf
+    *
+    * @return a Traversable containing all elements of this $coll.
+    */
+  def toTraversable: GenTraversable[A]
+
+  /** Converts this $coll to an iterable collection.  Note that
+    * the choice of target `Iterable` is lazy in this default implementation
+    * as this `TraversableOnce` may be lazy and unevaluated (i.e. it may
+    * be an iterator which is only traversable once).
+    *
+    * $willNotTerminateInf
+    *
+    * @return an `Iterable` containing all elements of this $coll.
+    */
+  def toIterable: GenIterable[A]
+
+  /** Converts this $coll to a sequence. As with `toIterable`, it's lazy
+    * in this default implementation, as this `TraversableOnce` may be
+    * lazy and unevaluated.
+    *
+    * $willNotTerminateInf
+    *
+    * @return a sequence containing all elements of this $coll.
+    */
+  def toSeq: GenSeq[A]
+
+  /** Converts this $coll to a set.
+    * $willNotTerminateInf
+    *
+    * @return a set containing all elements of this $coll.
+    */
+  def toSet[A1 >: A]: GenSet[A1]
+
+  /** Converts this $coll to a map.  This method is unavailable unless
+    * the elements are members of Tuple2, each ((T, U)) becoming a key-value
+    * pair in the map.  Duplicate keys will be overwritten by later keys:
+    * if this is an unordered collection, which key is in the resulting map
+    * is undefined.
+    *
+    * @return a map containing all elements of this $coll.
+    * @usecase def toMap[T, U]: Map[T, U]
+    * @inheritdoc
+    * $willNotTerminateInf
+    * @return a map of type `immutable.Map[T, U]`
+    *         containing all key/value pairs of type `(T, U)` of this $coll.
+    */
+  def toMap[K, V](implicit ev: A <:< (K, V)): GenMap[K, V]
+
+  /** Converts this $coll to a Vector.
+    * $willNotTerminateInf
+    *
+    * @return a vector containing all elements of this $coll.
+    */
+  def toVector: Vector[A]
+
+  /** Converts this $coll into another by copying all elements.
+    *
+    * @tparam Col The collection type to build.
+    * @return a new collection containing all elements of this $coll.
+    * @usecase def to[Col[_] ]: Col[A]
+    * @inheritdoc
+    * $willNotTerminateInf
+    * @return a new collection containing all elements of this $coll.
+    */
+  def to[Col[_]](implicit cbf: CanBuildFrom[Nothing, A, Col[A@uncheckedVariance]]): Col[A@uncheckedVariance]
 }
-
