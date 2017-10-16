@@ -2,26 +2,33 @@ package Cheetah.Immutable
 
 import java.util.NoSuchElementException
 
+import Cheetah.Immutable.Vector.empty
+
 import scala.annotation.tailrec
 import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.generic.CanBuildFrom
+import scala.collection.immutable.Stream
 import scala.collection.mutable.ArrayBuffer
-import scala.collection.{GenIterable, GenMap, GenSeq, GenSet, GenTraversable, Iterator, immutable, mutable}
+import scala.collection.{GenIterable, GenMap, GenSeq, GenTraversable, immutable, mutable}
 import scala.language.higherKinds
 import scala.reflect.ClassTag
+import scala.{Vector => ScalaVector}
 
 object Vector {
   //def newBuilder[A]: VectorBuilder[A] = new VectorBuilder[A]
   def newBuilder[A](implicit ct: ClassTag[A]): VectorBuilder[A] = new VectorBuilder[A]()(ct)
+  /** The generic builder that builds instances of $Coll
+    * at arbitrary element types.
+    */
+  def genericBuilder[B: ClassTag]: VectorBuilder[B] = new VectorBuilder[B]
 
-  @inline private[immutable] final val compileAssertions = false
+  @inline private[Immutable] final val compileAssertions = false
 
-  implicit def canBuildFrom[A](implicit ct: ClassTag[A]): CanBuildFrom[Vector[_], A, Vector[A]] =
-    new CanBuildFrom[Vector[_], A, Vector[A]] {
-      override def apply(from: Vector[_]): VectorBuilder[A] = new VectorBuilder[A]()(ct)
-
-      def apply(): VectorBuilder[A] = new VectorBuilder[A]()(ct)
-    }
+  //implicit def canBuildFrom[A](implicit ct: ClassTag[A]): CanBuildFrom[Vector[_], A, Vector[A]] =
+   // new CanBuildFrom[Vector[_], A, Vector[A]] {
+   //   override def apply(from: Vector[_]): VectorBuilder[A] = new VectorBuilder[A]()
+   //   def apply(): VectorBuilder[A] = new VectorBuilder[A]()(ct)
+   // }
 
   def empty[A](implicit ct: ClassTag[A]): Vector[A] = new Vector[A](0)(ct)
 
@@ -262,7 +269,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a new Vector resulting from applying the given function
     *         `f` to each element of this Vector and collecting the results in reversed order.
     */
-  def reverseMap[B](f: A => B): Vector[B] = {
+  def reverseMap[B : ClassTag](f: A => B): Vector[B] = {
     val reverse: VectorReverseIterator[A] = reverseiterator(0, endIndex)
     val build: VectorBuilder[B] = genericBuilder[B]
     while (reverse.hasNext) build += f(reverse.next())
@@ -330,7 +337,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         except that `replaced` elements starting from `from` are replaced
     *         by `patch`.
     */
-  def patch[B >: A](from: Int, patch: Vector[B], replaced: Int): Vector[B] = {
+  def patch[B >: A : ClassTag](from: Int, patch: Vector[B], replaced: Int): Vector[B] = {
     val vector: Vector[B] = new Vector[B](endIndex)
     vector.transient = this.transient
     vector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
@@ -394,7 +401,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @inheritdoc
     * @return a copy of this $coll with the element at position `index` replaced by `elem`.
     */
-  def updated[B >: A](index: Int, elem: B): Vector[B] = {
+  def updated[B >: A : ClassTag](index: Int, elem: B): Vector[B] = {
     val vector: Vector[B] = new Vector[B](endIndex)
     vector.transient = this.transient
     vector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
@@ -505,7 +512,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         all elements of this $coll followed by the minimal number of occurrences of `elem` so
     *         that the resulting $coll has a length of at least `len`.
     */
-  def padTo[B >: A](length: Int, elem: B): Vector[B] = {
+  def padTo[B >: A : ClassTag](length: Int, elem: B): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     var index = length - this.length
     build ++= this
@@ -557,7 +564,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a new $coll which contains all elements of this $coll
     *         followed by all elements of `that`.
     */
-  def union[B >: A](that: Vector[B]): Vector[B] = this ++ that
+  def union[B >: A : ClassTag](that: Vector[B]): Vector[B] = this ++ that
 
   /** Computes the multiset difference between this $coll and another sequence.
     *
@@ -729,13 +736,13 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   /** The generic builder that builds instances of $Coll
     * at arbitrary element types.
     */
-  def genericBuilder[B]: VectorBuilder[B] = new VectorBuilder[B]
+  def genericBuilder[B: ClassTag]: VectorBuilder[B] = new VectorBuilder[B]
 
   /** Returns a $coll formed from this $coll and another iterable collection
     * by combining corresponding elements in pairs.
     * If one of the two collections is longer than the other, its remaining elements are ignored.
     *
-    * @param   that The iterable providing the second half of each result pair
+    * @param   Vector[B] The iterable providing the second half of each result pair
     * @tparam  A the type of the first half of the returned pairs (this is always a supertype
     *            of the collection's element type `A`).
     * @tparam  B the type of the second half of the returned pairs
@@ -752,7 +759,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         corresponding elements of this $coll and `that`. The length
     *         of the returned collection is the minimum of the lengths of this $coll and `that`.
     */
-  def zip[B](that: Vector[B]): Vector[(A, B)] = {
+  def zip[B: ClassTag](that: Vector[B]): Vector[(A, B)] = {
     val build: VectorBuilder[(A, B)] = genericBuilder[(A, B)]
     val thisforward: VectorIterator[A] = this.iterator
     val thatforward: VectorIterator[B] = that.iterator
@@ -848,7 +855,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a pair of ${coll}s, containing the first, respectively second
     *         half of each element pair of this $coll.
     */
-  def unzip[A1, A2](implicit asPair: A => (A1, A2)): (Vector[A1], Vector[A2]) = {
+  def unzip[A1 : ClassTag, A2 : ClassTag](implicit asPair: A => (A1, A2)): (Vector[A1], Vector[A2]) = {
     val build1: VectorBuilder[A1] = genericBuilder[A1]
     val build2: VectorBuilder[A2] = genericBuilder[A2]
     this.foreach(xy => {
@@ -880,7 +887,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a triple of ${coll}s, containing the first, second, respectively
     *         third member of each element triple of this $coll.
     */
-  def unzip3[A1, A2, A3](implicit asTriple: A => (A1, A2, A3)): (Vector[A1], Vector[A2], Vector[A3]) = {
+  def unzip3[A1 : ClassTag, A2 : ClassTag, A3 : ClassTag](implicit asTriple: A => (A1, A2, A3)): (Vector[A1], Vector[A2], Vector[A3]) = {
     val build1: VectorBuilder[A1] = genericBuilder[A1]
     val build2: VectorBuilder[A2] = genericBuilder[A2]
     val build3: VectorBuilder[A3] = genericBuilder[A3]
@@ -920,7 +927,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *    // ys == Set(1, 2, 3)
     *    }}}
     */
-  def flatten[B](implicit asVector: A => Vector[B]): Vector[B] = {
+  def flatten[B : ClassTag](implicit asVector: A => Vector[B]): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     this.foreach(xs => build ++= asVector(xs))
     build.result()
@@ -1096,7 +1103,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @param op the associative operator for the scan
     * @return a new $coll containing the prefix scan of the elements in this $coll
     */
-  def scan[B >: A](z: B)(op: (B, B) => B): Vector[B] = scanLeft(z)(op) //TODO Maybe use a recursive method?
+  def scan[B >: A : ClassTag](z: B)(op: (B, B) => B): Vector[B] = scanLeft(z)(op) //TODO Maybe use a recursive method?
 
   /** Produces a collection containing cumulative results of applying the
     * operator going left to right.
@@ -1109,7 +1116,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @param op the binary operator applied to the intermediate result and the element
     * @return collection with intermediate results
     */
-  def scanLeft[B](z: B)(op: (B, A) => B): Vector[B] = {
+  def scanLeft[B : ClassTag](z: B)(op: (B, A) => B): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     val forward: VectorIterator[A] = this.iterator
     var acc: B = z
@@ -1136,12 +1143,12 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @param op the binary operator applied to the intermediate result and the element
     * @return collection with intermediate results
     */
-  def scanRight[B, That](z: B)(op: (A, B) => B): Vector[B] = {
+  def scanRight[B : ClassTag](z: B)(op: (A, B) => B): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     val backward: VectorReverseIterator[A] = this.reverseiterator
     var acc: B = z
     while (backward.hasNext) {
-      acc = op(acc, backward.next())
+      acc = op(backward.next(), acc)
       build += acc
     }
     build.result()
@@ -1158,9 +1165,9 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a new $coll resulting from applying the given function
     *         `f` to each element of this $coll and collecting the results.
     */
-  def hashedmap[B](f: A => B): Vector[B] = {
+  def hashedmap[B : ClassTag](f: A => B): Vector[B] = {
     val value: mutable.HashMap[A, B] = new mutable.HashMap[A, B] {
-      override def default(k: A) = _
+      override def default(k: A) = empty.asInstanceOf[B]
     }
     val build: VectorBuilder[B] = genericBuilder[B]
     val forward: VectorIterator[A] = this.iterator
@@ -1174,7 +1181,8 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     build.result()
   }
 
-  def map[B](f: A => B): Vector[B] = {
+
+  def map[B : ClassTag](f: A => B): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     val forward: VectorIterator[A] = this.iterator
     while (forward.hasNext) build += f(forward.next())
@@ -1197,7 +1205,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         `pf` to each element on which it is defined and collecting the results.
     *         The order of the elements is preserved.
     */
-  def collect[B](pf: PartialFunction[A, B]): Vector[B] = {
+  def collect[B: ClassTag](pf: PartialFunction[A, B]): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     val forward: VectorIterator[A] = this.iterator
     while (forward.hasNext) {
@@ -1242,16 +1250,16 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a new $coll resulting from applying the given collection-valued function
     *         `f` to each element of this $coll and concatenating the results.
     */
-  def flatMap[B](f: A => Vector[B]): Vector[B] = {
+  def flatMap[B: ClassTag](f: A => Vector[B]): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     val forward: VectorIterator[A] = this.iterator
     while (forward.hasNext) build ++= f(forward.next())
     build.result()
   }
 
-  def hashedflatMap[B](f: A => Vector[B]): Vector[B] = {
+  def hashedflatMap[B : ClassTag](f: A => Vector[B]): Vector[B] = {
     val value: mutable.HashMap[A, Vector[B]] = new mutable.HashMap[A, Vector[B]] {
-      override def default(k: A): Vector[B] = _
+      override def default(k: A): Vector[B] = empty.asInstanceOf[Vector[B]]
     }
     val build: VectorBuilder[B] = genericBuilder[B]
     val forward: VectorIterator[A] = this.iterator
@@ -1346,13 +1354,13 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         for which `f(x)` equals `k`.
     *
     */
-  def groupBy[K](f: A => K): mutable.Map[K, Vector[A]] = {
-    val group: mutable.HashMap[K, Vector[A]] = new mutable.HashMap[K, Vector[A]] {
-      override def default(k: K) = new Vector[A](0)
+  def groupBy[B >: A : ClassTag, K] (f: B => K): mutable.Map[K, Vector[B]] = {
+    val group: mutable.HashMap[K, Vector[B]] = new mutable.HashMap[K, Vector[B]] {
+      override def default(k: K) = new Vector[B](0)
     }
     val forward: VectorIterator[A] = this.iterator
     while (forward.hasNext) {
-      val x: A = forward.next()
+      val x: B = forward.next()
       group(f(x)) :+ x
     }
     group
@@ -1366,7 +1374,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         or else the whole $coll, if it has less than `n` elements.
     */
   def take(n: Int): Vector[A] = {
-    if (n <= 0) Vector.empty
+    if (n <= 0) empty
     else if (n < endIndex)
       takeFront0(n)
     else
@@ -1385,7 +1393,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     else if (n < endIndex)
       dropFront0(n)
     else
-      Vector.empty
+      empty
   }
 
   /** Selects an interval of elements.  The returned collection is made up
@@ -1451,7 +1459,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         applied to this $coll. By default the string prefix is the
     *         simple name of the collection class $coll.
     */
-  def stringPrefix: String
+  def stringPrefix: String = "Vector"
 
 
   // Parallelizable
@@ -1540,11 +1548,14 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return An option value containing result of applying reduce operator `op` between all
     *         the elements if the collection is nonempty, and `None` otherwise.
     */
-  def reduceOption[B >: A](op: (B, B) => B): Option[B] = {
-    val forward = this.iterator
-    var acc: Option[B] = if (forward.hasNext) Some(forward.next()) else None
-    while (forward.hasNext) acc = Some(op(acc, forward.next()))
-    acc
+  def reduceOption[B >: A](op: (A, B) => B): Option[B] = {
+    if (this isEmpty) None
+    else {
+      val forward = this.iterator
+      var acc: B = forward.next()
+      while (forward.hasNext) acc = op(forward.next(), acc)
+      Some(acc)
+    }
   }
 
   /** Folds the elements of this $coll using the specified associative
@@ -1601,7 +1612,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
     */
   @tailrec final def /:[B](z: B)(op: (B, A) => B): B = {
-    this.tail./:(op(this.head, z))(op)
+    this.tail./:(op(z, this.head))(op)
   }
 
   /** Applies a binary operator to all elements of this $coll and a start value,
@@ -1686,7 +1697,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   def foldRight[B](z: B)(op: (A, B) => B): B = {
     val backward: VectorReverseIterator[A] = this.reverseiterator
     var acc: B = z
-    while (backward.hasNext) acc = op(acc, backward.next())
+    while (backward.hasNext) acc = op(backward.next(), acc)
     acc
   }
 
@@ -1722,7 +1733,12 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     */
   def aggregate[B](z: => B)(seqop: (B, A) => B, combop: (B, B) => B): B = { // TODO Proof of correctness
     var acc: B = z
-    this.split.foreach(x => acc = combop(while(x.hasNext) acc = seqop(acc, x.next()), acc))
+    this.split.foreach(x =>
+      acc = combop({
+      var acc: B = z
+      while(x.hasNext) acc = seqop(acc, x.next())
+      acc
+      } , acc))
     acc
   }
 
@@ -1765,7 +1781,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   def reduceRight[B >: A](op: (A, B) => B): B = {
     val reverse: VectorReverseIterator[A] = this.reverseiterator
     var acc: B = reverse.next()
-    while (reverse.hasNext) acc = op(acc, reverse.next())
+    while (reverse.hasNext) acc = op(reverse.next(), acc)
     acc
   }
 
@@ -1783,9 +1799,9 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     if(this.isEmpty) None
     else {
       val reverse: VectorReverseIterator[A] = this.reverseiterator
-      var acc: Option[B] = Some(reverse.next())
-      while (reverse.hasNext) acc = Some(op(reverse.next(), acc))
-      acc
+      var acc: B = reverse.next()
+      while (reverse.hasNext) acc = op(reverse.next(), acc)
+      Some(acc)
     }
   }
 
@@ -1823,9 +1839,9 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     if(this.isEmpty) None
     else {
       val forward: VectorIterator[A] = this.iterator
-      var acc: Option[B] = Some(forward.next())
-      while (forward.hasNext) acc = Some(op(acc, forward.next()))
-      acc
+      var acc: B = forward.next()
+      while (forward.hasNext) acc = op(acc, forward.next())
+      Some(acc)
     }
   }
 
@@ -2079,7 +2095,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
 
   /** Converts this $coll to an array.
     *
-    * @tparam A1 the type of the elements of the array. An `ClassTag` for
+    * @tparam B the type of the elements of the array. An `ClassTag` for
     *            this type must be available.
     * @return an array containing all elements of this $coll.
     * @usecase def toArray: Array[A]
@@ -2115,7 +2131,11 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *
     * @return a stream containing all elements of this $coll.
     */
-  def toStream: Stream[A]
+  def toStream: Stream[A] = {
+    val forward = this.iterator
+    if (!forward.hasNext) Stream.empty[A]
+    else Stream.cons(forward.next(), this.tail.toStream)
+  }
 
   /** Returns an Iterator over the elements in this $coll.  Will return
     * the same Iterator if this instance is already an Iterator.
@@ -2123,7 +2143,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *
     * @return an Iterator containing all elements of this $coll.
     */
-  def toIterator: Iterator[A]
+  def toIterator: VectorIterator[A] = this.iterator
 
   /** Uses the contents of this $coll to create a new mutable buffer.
     * $willNotTerminateInf
@@ -2138,7 +2158,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *
     * @return a Traversable containing all elements of this $coll.
     */
-  def toTraversable: GenTraversable[A]
+  def toTraversable: GenTraversable[A] = toStream
 
   /** Converts this $coll to an iterable collection.  Note that
     * the choice of target `Iterable` is lazy in this default implementation
@@ -2193,7 +2213,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *
     * @return a vector containing all elements of this $coll.
     */
-  def toVector: Vector[A] = to[Vector]
+  def toVector: ScalaVector[A] = to[ScalaVector]
 
   /** Converts this $coll into another by copying all elements.
     *
@@ -2206,7 +2226,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     */
   def to[Col[_]](implicit cbf: CanBuildFrom[Col[_], A, Col[A @uncheckedVariance]]): Col[A @uncheckedVariance] = {
     val build: mutable.Builder[A, Col[A]] = cbf()
-    build ++= this.asInstanceOf[Traversable]
+    build ++= this.asInstanceOf[TraversableOnce[A]]
     build.result()
   }
 

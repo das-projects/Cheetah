@@ -1420,7 +1420,7 @@ private[Immutable] trait VectorPointer[A]{
     newArray
   }
 
-  final private[Immutable] def copyOf(array: Leaf): Leaf = {
+  final private[Immutable] def copyOf(array: Leaf)(implicit ct: ClassTag[A]): Leaf = {
     val length: Int = array.length
     val newArray: Leaf = new Leaf(length)
     System.arraycopy(array, 0, newArray, 0, length)

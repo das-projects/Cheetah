@@ -2,7 +2,6 @@
 <project version="4">
   <component name="ScalaCompilerConfiguration">
     <profile name="SBT 1" modules="cheetah">
-      <option name="higherKinds" value="true" />
       <parameters>
         <parameter value="-Ypartial-unification" />
       </parameters>

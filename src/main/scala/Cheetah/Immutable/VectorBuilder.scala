@@ -18,6 +18,8 @@ class VectorBuilder[A](implicit val ct: ClassTag[A]) extends VectorPointer[A @un
   private var lo: Int = 0
   private var acc: Vector[A] = _
 
+  override private[Immutable] def endIndex = blockIndex + lo
+
   /** Adds a single element to the builder.
     *  @param elem the element to be added.
     *  @return the builder itself.
@@ -195,13 +197,13 @@ class VectorBuilder[A](implicit val ct: ClassTag[A]) extends VectorPointer[A @un
     *  wrong, i.e. a different number of elements is added.
     *
     *  @param size  the hint how many elements will be added.
-    *  @param boundingColl  the bounding collection. If it is
+    *  @param boundColl  the bounding collection. If it is
     *                       an IndexedSeqLike, then sizes larger
     *                       than collection's size are reduced.
     */
-  def sizeHintBounded(size: Int, boundingColl: VectorIterator[A]) {
-    boundingColl.sizeHintIfCheap match {
-      case -1 =>
+  def sizeHintBounded(size: Int, boundColl: VectorIterator[A]) {
+    boundColl.sizeHintIfCheap match {
+      case -1 => ()
       case n => sizeHint(size min n)
     }
   }
@@ -216,15 +218,13 @@ class VectorBuilder[A](implicit val ct: ClassTag[A]) extends VectorPointer[A @un
     *  @note The original builder should no longer be used after `mapResult` is called.
     */
 
-  def mapResult[B](f: Vector[A] => Vector[B]): VectorBuilder[B] =
-    new VectorBuilder[B] with Proxy {
-      override private[Immutable] def endIndex = this.endIndex
+  def mapResult[B: ClassTag](f: Vector[A] => Vector[B]): VectorBuilder[B] =
+    new VectorBuilder[B]{
       val self: VectorBuilder[A] = VectorBuilder.this
       def +=(x: A): this.type = { self += x; this }
       override def clear(): Unit = self.clear()
-      def ++=(xs: TraversableOnce[A]): this.type = { self ++= xs; this }
+      def ++=(xs: Vector[A]): this.type = { self ++= xs; this }
       override def sizeHint(size: Int): Unit = self.sizeHint(size)
-      def sizeHintBounded(size: Int, boundColl: VectorIterator[A]): Unit = self.sizeHintBounded(size, boundColl)
       override def result(): Vector[B] = f(self.result())
     }
 
