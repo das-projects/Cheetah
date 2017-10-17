@@ -48,44 +48,42 @@ private[Immutable] trait VectorPointer[A]{
   }
 
   final private[Immutable] def initFrom(that: VectorPointer[A]): Unit = {
-
-    depth = that.depth
+    this.depth = that.depth
     that.depth match {
       case 0 => ()
 
       case 1 =>
-        this.display0 = that.display0
+        this.display0 = that.display0.asInstanceOf[Leaf]
         this.display1 = that.display1
 
       case 2 =>
-        this.display0 = that.display0
+        this.display0 = that.display0.asInstanceOf[Leaf]
         this.display1 = that.display1
         this.display2 = that.display2
 
       case 3 =>
-        this.display0 = that.display0
+        this.display0 = that.display0.asInstanceOf[Leaf]
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
 
       case 4 =>
-        this.display0 = that.display0
+        this.display0 = that.display0.asInstanceOf[Leaf]
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
         this.display4 = that.display4
 
       case 5 =>
-        this.display0 = that.display0
+        this.display0 = that.display0.asInstanceOf[Leaf]
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
         this.display4 = that.display4
         this.display5 = that.display5
 
-
       case 6 =>
-        this.display0 = that.display0
+        this.display0 = that.display0.asInstanceOf[Leaf]
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
@@ -94,7 +92,7 @@ private[Immutable] trait VectorPointer[A]{
         this.display6 = that.display6
 
       case 7 =>
-        this.display0 = that.display0
+        this.display0 = that.display0.asInstanceOf[Leaf]
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
@@ -107,7 +105,7 @@ private[Immutable] trait VectorPointer[A]{
     }
   }
 
-  final private[Immutable] def initFromRoot(root: Node,
+  private[Immutable] final def initFromRoot(root: Node,
                                             depth: Int): Unit = {
     depth match {
       case 1 => display1 = root
@@ -127,10 +125,10 @@ private[Immutable] trait VectorPointer[A]{
   final private[Immutable] def initSingleton(elem: A)(implicit ct: ClassTag[A]): Unit = {
     initFocus(0, 0, 1, 1, 0)
     val d0: Leaf = new Leaf(1)
-    val d1: Node = new Node(2) // 2 for now, other places i saw 3
+    val d1: Node = new Node(3) // 2 for now, other places i saw 3
     val size: Size = new Size(1)
 
-    d0.update(0, elem)
+    d0.update(0, elem.asInstanceOf[A])
     size.update(0, d0.length)
 
     d1.update(0, display0)
@@ -141,16 +139,18 @@ private[Immutable] trait VectorPointer[A]{
     depth = 1
   }
 
-  final private[Immutable] def root: Node = depth match {
-    case 0 => null
-    case 1 => display1
-    case 2 => display2
-    case 3 => display3
-    case 4 => display4
-    case 5 => display5
-    case 6 => display6
-    case 7 => display7
-    case _ => throw new IllegalStateException()
+  final private[Immutable] def root: Node = {
+    depth match {
+      case 0 => null
+      case 1 => display1
+      case 2 => display2
+      case 3 => display3
+      case 4 => display4
+      case 5 => display5
+      case 6 => display6
+      case 7 => display7
+      case _ => throw new IllegalStateException()
+    }
   }
 
   final private[Immutable] def focusOn(index: Int): Unit = {
@@ -562,8 +562,8 @@ private[Immutable] trait VectorPointer[A]{
   }
 
   final private[Immutable] def gotoPos(index: Int, xor: Int): Unit = {
-
-    if (xor < (1 << 10))
+    if (xor < (1 << 5)) ()
+    else if (xor < (1 << 10))
       display0 = display1(index >> 5 & 31).asInstanceOf[Leaf]
     else if (xor < (1 << 15)) {
       display1 = display2(index >> 10 & 31).asInstanceOf[Node]

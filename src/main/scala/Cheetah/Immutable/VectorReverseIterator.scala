@@ -1,6 +1,7 @@
 package Cheetah.Immutable
 
 import scala.annotation.unchecked.uncheckedVariance
+import scala.reflect.ClassTag
 
 class VectorReverseIterator[+A](startIndex: Int, final override private[Immutable] val endIndex: Int)
   extends VectorPointer[A @uncheckedVariance]{
@@ -11,7 +12,7 @@ class VectorReverseIterator[+A](startIndex: Int, final override private[Immutabl
   private var endLo: Int = _
   private var _hasNext: Boolean = startIndex < endIndex
 
-  final private[Immutable] def initIteratorFrom[B >: A](that: VectorPointer[B]): Unit = {
+  final private[Immutable] def initIteratorFrom[B >: A : ClassTag](that: VectorPointer[B]): Unit = {
     initWithFocusFrom(that.asInstanceOf[VectorPointer[A]])
     _hasNext = startIndex < endIndex
     if (_hasNext) {

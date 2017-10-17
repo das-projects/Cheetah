@@ -742,7 +742,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * by combining corresponding elements in pairs.
     * If one of the two collections is longer than the other, its remaining elements are ignored.
     *
-    * @param   Vector[B] The iterable providing the second half of each result pair
+    * @param   B The iterable providing the second half of each result pair
     * @tparam  A the type of the first half of the returned pairs (this is always a supertype
     *            of the collection's element type `A`).
     * @tparam  B the type of the second half of the returned pairs
