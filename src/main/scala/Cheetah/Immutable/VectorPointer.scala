@@ -53,29 +53,29 @@ private[Immutable] trait VectorPointer[A]{
       case 0 => ()
 
       case 1 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+        this.display0 = that.display0
         this.display1 = that.display1
 
       case 2 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
 
       case 3 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
 
       case 4 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
         this.display4 = that.display4
 
       case 5 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
@@ -83,7 +83,7 @@ private[Immutable] trait VectorPointer[A]{
         this.display5 = that.display5
 
       case 6 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
@@ -92,7 +92,7 @@ private[Immutable] trait VectorPointer[A]{
         this.display6 = that.display6
 
       case 7 =>
-        this.display0 = that.display0.asInstanceOf[Leaf]
+        this.display0 = that.display0
         this.display1 = that.display1
         this.display2 = that.display2
         this.display3 = that.display3
@@ -128,7 +128,7 @@ private[Immutable] trait VectorPointer[A]{
     val d1: Node = new Node(3) // 2 for now, other places i saw 3
     val size: Size = new Size(1)
 
-    d0.update(0, elem.asInstanceOf[A])
+    d0.update(0, elem)
     size.update(0, d0.length)
 
     d1.update(0, display0)

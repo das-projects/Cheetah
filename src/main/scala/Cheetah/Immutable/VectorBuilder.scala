@@ -11,14 +11,18 @@ class VectorBuilder[A](implicit val ct: ClassTag[A]) extends VectorPointer[A @un
   display0 = new Leaf(32)
   display1 = new Node(33)
   display1.update(0, display0)
-  display1 = withComputedSizes(display1, 1)
+  //display1 = withComputedSizes(display1, 1)
   depth = 1
 
   private var blockIndex: Int = 0
   private var lo: Int = 0
   private var acc: Vector[A] = _
 
-  override private[Immutable] def endIndex = blockIndex + lo
+  private[Immutable] def endIndex = {
+    var size = blockIndex + lo
+    if (acc != null) size += acc.endIndex
+    size
+  }
 
   /** Adds a single element to the builder.
     *  @param elem the element to be added.

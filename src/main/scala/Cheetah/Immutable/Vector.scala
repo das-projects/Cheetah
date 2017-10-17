@@ -37,8 +37,7 @@ object Vector {
 
 class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   extends VectorPointer[A@uncheckedVariance]
-    with Serializable {
-  self =>
+    with Serializable { self =>
 
   private[Immutable] var transient: Boolean = false
 
@@ -397,11 +396,11 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @tparam B the element type of the returned $coll.
     * @return a new $coll which is a copy of this $coll with the element at position `index` replaced by `elem`.
     * @throws IndexOutOfBoundsException if `index` does not satisfy `0 <= index < length`.
-    * @usecase def updated(index: Int, elem: A): $Coll[A]
+    * @usecase def update(index: Int, elem: A): $Coll[A]
     * @inheritdoc
     * @return a copy of this $coll with the element at position `index` replaced by `elem`.
     */
-  def updated[B >: A : ClassTag](index: Int, elem: B): Vector[B] = {
+  def update[B >: A : ClassTag](index: Int, elem: B): Vector[B] = {
     val vector: Vector[B] = new Vector[B](endIndex)
     vector.transient = this.transient
     vector.initWithFocusFrom(this.asInstanceOf[Vector[B]])
