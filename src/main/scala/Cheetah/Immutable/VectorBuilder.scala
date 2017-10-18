@@ -2,16 +2,16 @@ package Cheetah.Immutable
 
 import scala.annotation.tailrec
 import scala.annotation.unchecked.uncheckedVariance
-import scala.collection.TraversableOnce
+import scala.collection.{TraversableOnce, mutable}
 import scala.reflect.ClassTag
 import scala.{Vector => ScalaVector}
 
-class VectorBuilder[A](implicit val ct: ClassTag[A]) extends VectorPointer[A @uncheckedVariance] {
+class VectorBuilder[A](implicit val ct: ClassTag[A]) extends mutable.Builder[A, Vector[A]] with  VectorPointer[A @uncheckedVariance] {
 
   display0 = new Leaf(32)
   display1 = new Node(33)
   display1.update(0, display0)
-  //display1 = withComputedSizes(display1, 1)
+  display1 = withComputedSizes(display1, 1)
   depth = 1
 
   private var blockIndex: Int = 0
@@ -29,7 +29,7 @@ class VectorBuilder[A](implicit val ct: ClassTag[A]) extends VectorPointer[A @un
     *  @return the builder itself.
     */
 
-  def +=(elem: A): VectorBuilder[A] = {
+  def +=(elem: A): VectorBuilder.this.type = {
     if (lo >= 32) {
       val newBlockIndex: Int = blockIndex + 32
       gotoNextBlockStartWritable(newBlockIndex, newBlockIndex ^ blockIndex)
@@ -153,7 +153,13 @@ class VectorBuilder[A](implicit val ct: ClassTag[A]) extends VectorPointer[A @un
     *
     *  @param size  the hint how many elements will be added.
     */
-  def sizeHint(size: Int) {}
+  override def sizeHint(size: Int) {
+   // if (size > endIndex && size >= 1) {
+      //val newarray: Node = new Node(size)
+      //java.lang.System.arraycopy(array, 0, newarray, 0, size0)
+      //array = newarray
+   // }
+  }
 
   /** Gives a hint that one expects the `result` of this builder
     *  to have the same size as the given collection, plus some delta. This will
@@ -225,7 +231,7 @@ class VectorBuilder[A](implicit val ct: ClassTag[A]) extends VectorPointer[A @un
   def mapResult[B: ClassTag](f: Vector[A] => Vector[B]): VectorBuilder[B] =
     new VectorBuilder[B]{
       val self: VectorBuilder[A] = VectorBuilder.this
-      def +=(x: A): this.type = { self += x; this }
+      def +=(x: A): Any = { self += x; this }
       override def clear(): Unit = self.clear()
       def ++=(xs: Vector[A]): this.type = { self ++= xs; this }
       override def sizeHint(size: Int): Unit = self.sizeHint(size)

@@ -50,8 +50,6 @@ private[Immutable] trait VectorPointer[A]{
   final private[Immutable] def initFrom(that: VectorPointer[A]): Unit = {
     this.depth = that.depth
     that.depth match {
-      case 0 => ()
-
       case 1 =>
         this.display0 = that.display0
         this.display1 = that.display1
@@ -125,23 +123,23 @@ private[Immutable] trait VectorPointer[A]{
   final private[Immutable] def initSingleton(elem: A)(implicit ct: ClassTag[A]): Unit = {
     initFocus(0, 0, 1, 1, 0)
     val d0: Leaf = new Leaf(1)
-    val d1: Node = new Node(3) // 2 for now, other places i saw 3
+    val d1: Node = new Node(3)
     val size: Size = new Size(1)
 
     d0.update(0, elem)
     size.update(0, d0.length)
+    display0 = d0.asInstanceOf[Leaf]
 
     d1.update(0, display0)
-    d1.update(1, size)
+    //d1 = withComputedSizes(d1, 1)
+    d1.update(2, size)
 
-    display0 = d0
     display1 = d1
     depth = 1
   }
 
   final private[Immutable] def root: Node = {
     depth match {
-      case 0 => null
       case 1 => display1
       case 2 => display2
       case 3 => display3
@@ -160,15 +158,15 @@ private[Immutable] trait VectorPointer[A]{
       if (xor >= 32)
         gotoPos(indexInFocus, xor)
       focus = indexInFocus
-    } else
+    } else{
       gotoPosFromRoot(index)
+    }
   }
 
   final private[Immutable] def getElementFromRoot(index: Int): A = {
 
-    var indexInSubTree = index
-    var currentDepth = depth
-
+    var indexInSubTree: Int = index
+    var currentDepth: Int = depth
     var display: Node = currentDepth match {
       case 1 => display1
       case 2 => display2
@@ -177,22 +175,19 @@ private[Immutable] trait VectorPointer[A]{
       case 5 => display5
       case 6 => display6
       case 7 => display7
+      case _ => throw new IllegalStateException()
     }
-
-    var sizes = display(display.length - 1).asInstanceOf[Size]
+    var sizes: Size = display(display.length - 1).asInstanceOf[Size]
 
     do {
-      val sizesIdx = getIndexInSizes(sizes, indexInSubTree)
-      if (sizesIdx != 0)
-        indexInSubTree -= sizes(sizesIdx - 1)
-
-      display = display(sizesIdx).asInstanceOf[Node]
-      if (currentDepth > 2)
+      val sizesIdx: Int = getIndexInSizes(sizes, indexInSubTree)
+      if (sizesIdx != 0) indexInSubTree -= sizes(sizesIdx - 1)
+      if (currentDepth >= 2) {
+        display = display(sizesIdx).asInstanceOf[Node]
         sizes = display(display.length - 1).asInstanceOf[Size]
-      else
-        sizes = null
-      currentDepth -= 1
-    } while (sizes != null)
+        currentDepth -= 1
+      }
+    } while (currentDepth > 1)
 
     currentDepth match {
       case 1 => getElem1(display, indexInSubTree)
@@ -208,13 +203,10 @@ private[Immutable] trait VectorPointer[A]{
 
   @inline final private def getIndexInSizes(sizes: Size,
                                             indexInSubTree: Int): Int = {
-
-    if (indexInSubTree == 0)
-      return 0
+    if (indexInSubTree == 0) return 0
 
     var is = 0
-    while (sizes(is) <= indexInSubTree)
-      is += 1
+    while (sizes(is) <= indexInSubTree) is += 1
     is
   }
 
@@ -1565,33 +1557,34 @@ private[Immutable] trait VectorPointer[A]{
 
   final private[Immutable] def withComputedSizes(node: Node,
                                                  currentDepth: Int): Node = {
-    var i = 0
-    var acc = 0
-    val end = node.length - 1
+    var i: Int = 0
+    var acc: Int = 0
+    val end: Int = node.length
 
-    if (end > 1) {
-      val sizes = new Size(end)
-      if (currentDepth == 1)
+    if (end > 0) {
+      val sizes: Size = new Size(end)
+      if (currentDepth == 1) {
         while (i < end) {
           acc += node(i).asInstanceOf[Leaf].length
           sizes.update(i, acc)
           i += 1
         }
-      else
+      } else {
         while (i < end) {
           acc += treeSize(node(i).asInstanceOf[Node], currentDepth - 1)
           sizes.update(i, acc)
           i += 1
         }
-      if (notBalanced(node, sizes, currentDepth, end))
-        node.update(end, sizes)
+      }
+      //if (notBalanced(node, sizes, currentDepth, end))
+      node.update(end - 1, sizes)
     } else if (end == 1 && currentDepth > 1) {
-      val child = node(0).asInstanceOf[Node]
-      val childSizes = child(child.length - 1).asInstanceOf[Size]
+      val child: Node = node(0).asInstanceOf[Node]
+      val childSizes: Size = child(child.length - 1).asInstanceOf[Size]
 
       if (childSizes != null)
         if (childSizes.length != 1) {
-          val sizes = new Size(1)
+          val sizes: Size = new Size(1)
           sizes.update(0, childSizes(childSizes.length - 1))
           node.update(end, sizes)
         } else
@@ -1633,10 +1626,9 @@ private[Immutable] trait VectorPointer[A]{
                                         sizes: Size,
                                         currentDepth: Int,
                                         end: Int): Boolean = {
-
     (end == 1 || sizes(end - 2) != ((end - 1) << (5 * currentDepth))) || (
       (currentDepth > 1) && {
-        val last = node(end - 1).asInstanceOf[Node]
+        val last: Node = node(end - 1).asInstanceOf[Node]
         last(last.length - 1) != null
       }
       )
@@ -1659,7 +1651,6 @@ private[Immutable] trait VectorPointer[A]{
           )
       }
     }
-
     treeSizeRec(tree, currentDepth, 0)
   }
 
