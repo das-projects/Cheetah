@@ -10,32 +10,33 @@ import scala.collection.generic.CanBuildFrom
 import scala.collection.immutable.Stream
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{GenIterable, GenMap, GenSeq, GenTraversable, immutable, mutable}
-import scala.language.higherKinds
+import scala.language.{higherKinds, postfixOps}
 import scala.reflect.ClassTag
 import scala.{Vector => ScalaVector}
 
 object Vector {
-  //def newBuilder[A]: VectorBuilder[A] = new VectorBuilder[A]
-  def newBuilder[A](implicit ct: ClassTag[A]): VectorBuilder[A] = new VectorBuilder[A]()(ct)
+
+  def newBuilder[A : ClassTag]: VectorBuilder[A] = new VectorBuilder[A]()
+
   /** The generic builder that builds instances of $Coll
     * at arbitrary element types.
     */
-  def genericBuilder[B: ClassTag]: VectorBuilder[B] = new VectorBuilder[B]
+  def genericBuilder[B : ClassTag]: VectorBuilder[B] = new VectorBuilder[B]()
 
+  implicit def canBuildFrom[A : ClassTag]: CanBuildFrom[Vector[_], A, Vector[A]] =
+    new CanBuildFrom[Vector[_], A, Vector[A]] {
+      def apply: VectorBuilder[A] = new VectorBuilder[A]()
+
+      override def apply(from: Vector[_]): VectorBuilder[A] = new VectorBuilder[A]()
+    }
   @inline private[Immutable] final val compileAssertions = false
 
-  //implicit def canBuildFrom[A](implicit ct: ClassTag[A]): CanBuildFrom[Vector[_], A, Vector[A]] =
-   // new CanBuildFrom[Vector[_], A, Vector[A]] {
-   //   override def apply(from: Vector[_]): VectorBuilder[A] = new VectorBuilder[A]()
-   //   def apply(): VectorBuilder[A] = new VectorBuilder[A]()(ct)
-   // }
-
-  def empty[A](implicit ct: ClassTag[A]): Vector[A] = new Vector[A](0)(ct)
+  def empty[A : ClassTag]: Vector[A] = new Vector[A](0)
 
   final lazy private[Immutable] val emptyTransientBlock: Array[AnyRef] = new Array[AnyRef](2)
 }
 
-class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
+final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   extends VectorPointer[A@uncheckedVariance]
     with Serializable { self =>
 
@@ -61,7 +62,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return the element of this $coll at index `index`, where `0` indicates the first element.
     * @throws IndexOutOfBoundsException if `index` does not satisfy `0 <= index < length`.
     */
-  @inline def apply(index: Int): A = {
+  def apply(index: Int): A = {
     val _focusStart: Int = this.focusStart
     if (_focusStart <= index && index < this.focusEnd) {
       val indexInFocus: Int = index - _focusStart
@@ -97,7 +98,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @param    index the index to test
     * @return `true` if this $coll contains an element at position `idx`, `false` otherwise.
     */
-  @inline def isDefinedAt(index: Int): Boolean = (index >= 0) && (index < endIndex)
+  @inline def isDefinedAt(index: Int): Boolean = (index >= 0) && (index < this.endIndex)
 
   /** Computes length of longest segment whose elements all satisfy some predicate.
     *
@@ -411,7 +412,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     }
     vector.makeTransientIfNeeded()
 
-    val d0 = copyOf(vector.display0.asInstanceOf[Leaf]).asInstanceOf[Array[B]]
+    val d0: Array[B] = copyOf(vector.display0.asInstanceOf[Leaf]).asInstanceOf[Array[B]]
     d0.update((index - vector.focusStart) & 31, elem)
     vector.display0 = d0
     vector.asInstanceOf[Vector[B]]
@@ -641,7 +642,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     */
   def distinct: Vector[A] = {
     val occurrence: mutable.HashMap[A, Int] = new mutable.HashMap[A, Int] {
-      override def default(k: A) = 0
+      override def default(k: A): Int = 0
     }
     val build: VectorBuilder[A] = newBuilder
     val forward: VectorIterator[A] = this.iterator
@@ -995,7 +996,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return And iterator from start to end
     */
 
-  def iterator(start: Int, end: Int): VectorIterator[A] = {
+  final def iterator(start: Int, end: Int): VectorIterator[A] = {
     if (this.transient) {
       this.normalize(this.depth)
       this.transient = false
@@ -1006,7 +1007,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     iterator
   }
 
-  def iterator: VectorIterator[A] = iterator(0, endIndex)
+  final def iterator: VectorIterator[A] = iterator(0, endIndex)
 
   /** Constructs the Reverse Iterator for the Vector type constructor
     *
@@ -1015,7 +1016,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return And iterator from start to end
     */
 
-  def reverseiterator(start: Int, end: Int): VectorReverseIterator[A] = {
+  final def reverseiterator(start: Int, end: Int): VectorReverseIterator[A] = {
     if (this.transient) {
       this.normalize(this.depth)
       this.transient = false
@@ -1025,7 +1026,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     reverseiterator
   }
 
-  def reverseiterator: VectorReverseIterator[A] = reverseiterator(0, endIndex)
+  final def reverseiterator: VectorReverseIterator[A] = reverseiterator(0, endIndex)
 
   /** Checks if the other iterable collection contains the same elements in the same order as this $coll.
     *
@@ -1041,7 +1042,6 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return `true`, if both collections contain the same elements in the same order, `false` otherwise.
     */
   def sameElements[B >: A](that: Vector[B]): Boolean = this.corresponds(that)((x, y) => x == y)
-
 
   // GenTraversableLike
 
@@ -1166,7 +1166,7 @@ class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     */
   def hashedmap[B : ClassTag](f: A => B): Vector[B] = {
     val value: mutable.HashMap[A, B] = new mutable.HashMap[A, B] {
-      override def default(k: A) = empty.asInstanceOf[B]
+      override def default(k: A): B = empty.asInstanceOf[B]
     }
     val build: VectorBuilder[B] = genericBuilder[B]
     val forward: VectorIterator[A] = this.iterator
