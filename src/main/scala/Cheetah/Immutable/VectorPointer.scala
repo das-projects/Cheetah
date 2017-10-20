@@ -1,5 +1,6 @@
 package Cheetah.Immutable
 
+import scala.annotation.tailrec
 import scala.reflect.ClassTag
 
 private[Immutable] trait VectorPointer[A]{
@@ -1569,26 +1570,28 @@ private[Immutable] trait VectorPointer[A]{
           sizes.update(i, acc)
           i += 1
         }
+        node.update(end - 1, sizes)
+      } else if (end == 1 && currentDepth > 1) {
+        val child: Node = node(0).asInstanceOf[Node]
+        val childSizes: Size = child(child.length - 1).asInstanceOf[Size]
+
+        if (childSizes != null)
+          if (childSizes.length != 1) {
+            val sizes: Size = new Size(1)
+            sizes.update(0, childSizes(childSizes.length - 1))
+            node.update(end - 1, sizes)
+          } else {
+            node.update(end - 1, childSizes)
+          }
       } else {
         while (i < end) {
           acc += treeSize(node(i).asInstanceOf[Node], currentDepth - 1)
           sizes.update(i, acc)
           i += 1
         }
+        node.update(end - 1, sizes)
       }
       //if (notBalanced(node, sizes, currentDepth, end))
-      node.update(end - 1, sizes)
-    } else if (end == 1 && currentDepth > 1) {
-      val child: Node = node(0).asInstanceOf[Node]
-      val childSizes: Size = child(child.length - 1).asInstanceOf[Size]
-
-      if (childSizes != null)
-        if (childSizes.length != 1) {
-          val sizes: Size = new Size(1)
-          sizes.update(0, childSizes(childSizes.length - 1))
-          node.update(end, sizes)
-        } else
-          node.update(end, childSizes)
     }
     node
   }
@@ -1616,41 +1619,28 @@ private[Immutable] trait VectorPointer[A]{
         i += 1
       }
 
-      if (notBalanced(node, newSizes, currentDepth, end))
+      if (!isBalanced(node, newSizes, currentDepth))
         node.update(end, newSizes)
     }
     node
   }
 
-  @inline final private def notBalanced(node: Node,
-                                        sizes: Size,
-                                        currentDepth: Int,
-                                        end: Int): Boolean = {
-    (end == 1 || sizes(end - 2) != ((end - 1) << (5 * currentDepth))) || (
-      (currentDepth > 1) && {
-        val last: Node = node(end - 1).asInstanceOf[Node]
-        last(last.length - 1) != null
-      }
-      )
+  @inline final private def isBalanced(node: Node, // TODO Need to fix!!! and the definition of "end" in the whole file
+                                       sizes: Size,
+                                       currentDepth: Int): Boolean = {
+    if (node.length == 1) false else sizes(node.length - 1) == (node.length << (5 * currentDepth))
   }
 
   private def treeSize(tree: Node, currentDepth: Int): Int = {
-    @scala.annotation.tailrec
-    def treeSizeRec(node: Node, currentDepth: Int, acc: Int): Int = {
-      val treeSizes: Size = node(node.length - 1).asInstanceOf[Size]
-      if (treeSizes != null)
+    @tailrec def treeSizeRec(node: Node, currentDepth: Int, acc: Int): Int = {
+      val length: Int = node.length
+      val treeSizes: Size = node(length - 1).asInstanceOf[Size]
+      if (currentDepth == 1) {
         acc + treeSizes(treeSizes.length - 1)
-      else {
-        val length: Int = node.length
-        if (currentDepth == 1)
-          acc + (length - 2) * (1 << 5)
-        else
-          treeSizeRec(node(length - 2).asInstanceOf[Node],
-            currentDepth - 1,
-            acc + ((length - 2) * (1 << (5 * currentDepth)))
-          )
+      } else {
+        treeSizeRec(node(length - 2).asInstanceOf[Node], currentDepth - 1, acc + treeSizes(treeSizes.length - 1))
       }
-    }
+      }
     treeSizeRec(tree, currentDepth, 0)
   }
 
