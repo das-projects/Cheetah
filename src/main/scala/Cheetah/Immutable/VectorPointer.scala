@@ -3,7 +3,7 @@ package Cheetah.Immutable
 import scala.annotation.tailrec
 import scala.reflect.ClassTag
 
-private[Immutable] trait VectorPointer[A]{
+private[Immutable] trait VectorPointer[A] {
 
   type Node = Array[AnyRef]
   type Leaf = Array[A]
@@ -159,7 +159,7 @@ private[Immutable] trait VectorPointer[A]{
       if (xor >= 32)
         gotoPos(indexInFocus, xor)
       focus = indexInFocus
-    } else{
+    } else {
       gotoPosFromRoot(index)
     }
   }
@@ -415,143 +415,142 @@ private[Immutable] trait VectorPointer[A]{
   final private[Immutable] def setupNewBlockInInitBranch(insertionDepth: Int,
                                                          transient: Boolean)(implicit ct: ClassTag[A]): Unit = {
     insertionDepth match {
-    case 1 =>
+      case 1 =>
+        if (transient) normalize(1)
 
-      if (transient) normalize(1)
-
-      val newRoot = copyAndIncLeftRoot(display1, transient, 1)
-      if (transient) {
-        withRecomputedSizes(newRoot, 1, 1)
-        newRoot.update(1, display0)
-      }
-      display1 = newRoot
-      display0 = new Leaf(1)
-
-    case 2 =>
-      if (transient) normalize(2)
-
-      if (depth == 1) {
-        depth = 2
-        display2 = makeNewRoot1(display1, 2)
-      } else {
-        val newRoot = copyAndIncLeftRoot(display2, transient, 2)
+        val newRoot: Node = copyAndIncLeftRoot(display1, transient, 1)
         if (transient) {
-          withRecomputedSizes(newRoot, 2, 1)
-          newRoot.update(1, display1)
+          withRecomputedSizes(newRoot, 1, 1)
+          newRoot.update(1, display0)
         }
-        display2 = newRoot
-      }
-      display0 = new Leaf(1)
-      val _emptyTransientBlock = new Node(2) //emptyTransientBlock
-      display1 = _emptyTransientBlock
+        display1 = newRoot
+        display0 = new Leaf(1)
 
-    case 3 =>
-      if (transient) normalize(3)
+      case 2 =>
+        if (transient) normalize(2)
 
-      if (depth == 2) {
-        depth = 3
-        display3 = makeNewRoot1(display2, 3)
-      } else {
-        val newRoot = copyAndIncLeftRoot(display3, transient, 3)
-        if (transient) {
-          withRecomputedSizes(newRoot, 3, 1)
-          newRoot.update(1, display2)
+        if (depth == 1) {
+          depth = 2
+          display2 = makeNewRoot1(display1, 2)
+        } else {
+          val newRoot = copyAndIncLeftRoot(display2, transient, 2)
+          if (transient) {
+            withRecomputedSizes(newRoot, 2, 1)
+            newRoot.update(1, display1)
+          }
+          display2 = newRoot
         }
-        display3 = newRoot
-      }
-      display0 = new Leaf(1)
-      val _emptyTransientBlock = new Node(2) //emptyTransientBlock
-      display1 = _emptyTransientBlock
-      display2 = _emptyTransientBlock
+        display0 = new Leaf(1)
+        val _emptyTransientBlock = new Node(2) //emptyTransientBlock
+        display1 = _emptyTransientBlock
 
-    case 4 =>
-      if (transient) normalize(4)
+      case 3 =>
+        if (transient) normalize(3)
 
-      if (depth == 3) {
-        depth = 4
-        display4 = makeNewRoot1(display3, 4)
-      } else {
-        val newRoot = copyAndIncLeftRoot(display4, transient, 4)
-        if (transient) {
-          withRecomputedSizes(newRoot, 4, 1)
-          newRoot.update(1, display3)
+        if (depth == 2) {
+          depth = 3
+          display3 = makeNewRoot1(display2, 3)
+        } else {
+          val newRoot = copyAndIncLeftRoot(display3, transient, 3)
+          if (transient) {
+            withRecomputedSizes(newRoot, 3, 1)
+            newRoot.update(1, display2)
+          }
+          display3 = newRoot
         }
-        display4 = newRoot
-      }
-      display0 = new Leaf(1)
-      val _emptyTransientBlock = new Node(2) //emptyTransientBlock
-      display1 = _emptyTransientBlock
-      display2 = _emptyTransientBlock
-      display3 = _emptyTransientBlock
+        display0 = new Leaf(1)
+        val _emptyTransientBlock = new Node(2) //emptyTransientBlock
+        display1 = _emptyTransientBlock
+        display2 = _emptyTransientBlock
 
-    case 5 =>
-      if (transient) normalize(5)
+      case 4 =>
+        if (transient) normalize(4)
 
-      if (depth == 4) {
-        depth = 5
-        display5 = makeNewRoot1(display4, 5)
-      } else {
-        val newRoot = copyAndIncLeftRoot(display5, transient, 5)
-        if (transient) {
-          withRecomputedSizes(newRoot, 5, 1)
-          newRoot.update(1, display4)
+        if (depth == 3) {
+          depth = 4
+          display4 = makeNewRoot1(display3, 4)
+        } else {
+          val newRoot = copyAndIncLeftRoot(display4, transient, 4)
+          if (transient) {
+            withRecomputedSizes(newRoot, 4, 1)
+            newRoot.update(1, display3)
+          }
+          display4 = newRoot
         }
-        display5 = newRoot
-      }
-      display0 = new Leaf(1)
-      val _emptyTransientBlock = new Node(2) //emptyTransientBlock
-      display1 = _emptyTransientBlock
-      display2 = _emptyTransientBlock
-      display3 = _emptyTransientBlock
-      display4 = _emptyTransientBlock
+        display0 = new Leaf(1)
+        val _emptyTransientBlock = new Node(2) //emptyTransientBlock
+        display1 = _emptyTransientBlock
+        display2 = _emptyTransientBlock
+        display3 = _emptyTransientBlock
 
-    case 6 =>
-      if (transient) normalize(6)
+      case 5 =>
+        if (transient) normalize(5)
 
-      if (depth == 5) {
-        depth = 6
-        display6 = makeNewRoot1(display5, 6)
-      } else {
-        val newRoot = copyAndIncLeftRoot(display6, transient, 6)
-        if (transient) {
-          withRecomputedSizes(newRoot, 6, 1)
-          newRoot.update(1, display5)
+        if (depth == 4) {
+          depth = 5
+          display5 = makeNewRoot1(display4, 5)
+        } else {
+          val newRoot = copyAndIncLeftRoot(display5, transient, 5)
+          if (transient) {
+            withRecomputedSizes(newRoot, 5, 1)
+            newRoot.update(1, display4)
+          }
+          display5 = newRoot
         }
-        display6 = newRoot
-      }
-      display0 = new Leaf(1)
-      val _emptyTransientBlock = new Node(2) //emptyTransientBlock
-      display1 = _emptyTransientBlock
-      display2 = _emptyTransientBlock
-      display3 = _emptyTransientBlock
-      display4 = _emptyTransientBlock
-      display5 = _emptyTransientBlock
+        display0 = new Leaf(1)
+        val _emptyTransientBlock = new Node(2) //emptyTransientBlock
+        display1 = _emptyTransientBlock
+        display2 = _emptyTransientBlock
+        display3 = _emptyTransientBlock
+        display4 = _emptyTransientBlock
 
-    case 7 =>
-      if (transient) normalize(7)
+      case 6 =>
+        if (transient) normalize(6)
 
-      if (depth == 6) {
-        depth = 7
-        display7 = makeNewRoot1(display6, 7)
-      } else {
-        val newRoot = copyAndIncLeftRoot(display7, transient, 7)
-        if (transient) {
-          withRecomputedSizes(newRoot, 7, 1)
-          newRoot.update(1, display6)
+        if (depth == 5) {
+          depth = 6
+          display6 = makeNewRoot1(display5, 6)
+        } else {
+          val newRoot = copyAndIncLeftRoot(display6, transient, 6)
+          if (transient) {
+            withRecomputedSizes(newRoot, 6, 1)
+            newRoot.update(1, display5)
+          }
+          display6 = newRoot
         }
-        display7 = newRoot
-      }
-      display0 = new Leaf(1)
-      val _emptyTransientBlock = new Node(2) //emptyTransientBlock
-      display1 = _emptyTransientBlock
-      display2 = _emptyTransientBlock
-      display3 = _emptyTransientBlock
-      display4 = _emptyTransientBlock
-      display5 = _emptyTransientBlock
-      display6 = _emptyTransientBlock
+        display0 = new Leaf(1)
+        val _emptyTransientBlock = new Node(2) //emptyTransientBlock
+        display1 = _emptyTransientBlock
+        display2 = _emptyTransientBlock
+        display3 = _emptyTransientBlock
+        display4 = _emptyTransientBlock
+        display5 = _emptyTransientBlock
 
-    case _ => throw new IllegalStateException()
-  }
+      case 7 =>
+        if (transient) normalize(7)
+
+        if (depth == 6) {
+          depth = 7
+          display7 = makeNewRoot1(display6, 7)
+        } else {
+          val newRoot = copyAndIncLeftRoot(display7, transient, 7)
+          if (transient) {
+            withRecomputedSizes(newRoot, 7, 1)
+            newRoot.update(1, display6)
+          }
+          display7 = newRoot
+        }
+        display0 = new Leaf(1)
+        val _emptyTransientBlock = new Node(2) //emptyTransientBlock
+        display1 = _emptyTransientBlock
+        display2 = _emptyTransientBlock
+        display3 = _emptyTransientBlock
+        display4 = _emptyTransientBlock
+        display5 = _emptyTransientBlock
+        display6 = _emptyTransientBlock
+
+      case _ => throw new IllegalStateException()
+    }
   }
 
   final private[Immutable] def gotoPos(index: Int, xor: Int): Unit = {
@@ -1399,9 +1398,9 @@ private[Immutable] trait VectorPointer[A]{
   }
 
   final private[Immutable] def copyOf(array: Node): Node = {
-    val len: Int = array.length
-    val newArray: Node = new Node(len)
-    System.arraycopy(array, 0, newArray, 0, len)
+    val length: Int = array.length
+    val newArray: Node = new Node(length)
+    System.arraycopy(array, 0, newArray, 0, length)
     newArray
   }
 
@@ -1430,14 +1429,15 @@ private[Immutable] trait VectorPointer[A]{
 
   final private[Immutable] def copyOfAndNull(array: Node,
                                              nullIndex: Int): Node = {
-    val len: Int = array.length
-    val newArray: Node = new Node(len)
-    System.arraycopy(array, 0, newArray, 0, len - 1)
+    val length: Int = array.length
+    val newArray: Node = new Node(length)
+    //System.arraycopy(array, 0, newArray, 0, length - 1)
+    System.arraycopy(array, 0, newArray, 0, length)
 
     newArray.update(nullIndex, null)
-    val sizes: Size = array(len - 1).asInstanceOf[Size]
+    val sizes: Size = array(length - 1).asInstanceOf[Size]
     if (sizes != null)
-      newArray.update(len - 1, makeTransientSizes(sizes, nullIndex))
+      newArray.update(length - 1, makeTransientSizes(sizes, nullIndex))
     newArray
   }
 
@@ -1480,8 +1480,7 @@ private[Immutable] trait VectorPointer[A]{
     }
 
     var i: Int = transientBranchIndex
-    val len: Int = newSizes.length
-    while (i < len) {
+    while (i < newSizes.length) {
       newSizes.update(i, oldSizes(i) - delta)
       i += 1
     }
@@ -1492,15 +1491,18 @@ private[Immutable] trait VectorPointer[A]{
                                         transient: Boolean,
                                         currentLevel: Int): Node = {
     val length: Int = node.length
-    val newRoot: Node = copyOf(node, length - 1, length + 1)
+    //val newRoot: Node = copyOf(node, length - 1, length + 1)
+    val newRoot: Node = copyOf(node, length, length + 1)
     val oldSizes: Size = node(length - 1).asInstanceOf[Size]
     if (oldSizes != null) {
-      val newSizes: Size = new Size(length)
-      System.arraycopy(oldSizes, 0, newSizes, 0, length - 1)
+      //val newSizes: Size = new Size(length)
+      val newSizes: Size = new Size(length + 1)
+      System.arraycopy(oldSizes, 0, newSizes, 0, length)
       if (transient)
-        newSizes.update(length - 1, 1 << (5 * currentLevel))
-
-      newSizes.update(length - 1, newSizes(length - 2))
+        //newSizes.update(length - 1, 1 << (5 * currentLevel))
+        newSizes.update(length, 1 << (5 * currentLevel))
+      //newSizes.update(length - 1, newSizes(length - 2))
+      newSizes.update(length, newSizes(length - 1))
       newRoot.update(length, newSizes)
     }
     newRoot
@@ -1511,21 +1513,29 @@ private[Immutable] trait VectorPointer[A]{
                                        currentLevel: Int): Node = {
     val length: Int = node.length
     val newRoot: Node = new Node(length + 1)
-    System.arraycopy(node, 0, newRoot, 1, length - 1)
+    // Copy existing contents to the new array, but shifted by one to the left
+    //System.arraycopy(node, 0, newRoot, 1, length - 1)
+    System.arraycopy(node, 0, newRoot, 1, length)
 
     val oldSizes: Size = node(length - 1).asInstanceOf[Size]
-    val newSizes: Size = new Size(length)
+    //val newSizes: Size = new Size(length)
+    val newSizes: Size = new Size(length + 1)
 
-    if (oldSizes != null)
-      if (transient)
-        System.arraycopy(oldSizes, 1, newSizes, 2, length - 2)
-      else
-        System.arraycopy(oldSizes, 0, newSizes, 1, length - 1)
-    else {
+    if (oldSizes != null) {
+      if (transient) {
+        //System.arraycopy(oldSizes, 1, newSizes, 2, length - 2)
+        System.arraycopy(oldSizes, 1, newSizes, 2, length - 1)
+      }
+      else {
+        //System.arraycopy(oldSizes, 0, newSizes, 1, length - 1)
+        System.arraycopy(oldSizes, 0, newSizes, 1, length)
+      }
+    } else {
       val subTreeSize: Int = 1 << (5 * currentLevel)
       var acc = 0
       var i = 1
-      while (i < length - 1) {
+      //while (i < length - 1) {
+      while (i < length) {
         acc += subTreeSize
         newSizes.update(i, acc)
         i += 1
@@ -1536,62 +1546,37 @@ private[Immutable] trait VectorPointer[A]{
     newRoot
   }
 
-  /*
-    final private[Immutable] def withComputedSizes1(node: Node): Node = {
-      var i = 0
-      var acc = 0
-      val end = node.length - 1
-
-      if (end > 1) {
-        val sizes = new Size(end)
-        while (i < end) {
-          acc += node(i).asInstanceOf[Leaf].length
-          sizes.update(i, acc)
-          i += 1
-        }
-        if (sizes(end - 2) != (end - 1 << 5))
-          node.update(end, sizes)
-      }
-      node
-    }
-  */
-
   final private[Immutable] def withComputedSizes(node: Node,
                                                  currentDepth: Int): Node = {
     var i: Int = 0
     var acc: Int = 0
-    val end: Int = node.length
-
-    if (end > 0) {
-      val sizes: Size = new Size(end)
+    val length: Int = node.length
+    if (length > 0) {
+      val sizes: Size = new Size(length)
       if (currentDepth == 1) {
-        while (i < end) {
+        while (i < length) {
           acc += node(i).asInstanceOf[Leaf].length
           sizes.update(i, acc)
           i += 1
         }
-        node.update(end - 1, sizes)
-      } else if (end == 1 && currentDepth > 1) {
+        node.update(length - 1, sizes)
+      } else if (length == 1 && currentDepth > 1) {
         val child: Node = node(0).asInstanceOf[Node]
         val childSizes: Size = child(child.length - 1).asInstanceOf[Size]
-
-        if (childSizes != null)
-          if (childSizes.length != 1) {
-            val sizes: Size = new Size(1)
-            sizes.update(0, childSizes(childSizes.length - 1))
-            node.update(end - 1, sizes)
-          } else {
-            node.update(end - 1, childSizes)
-          }
+        if (childSizes.length > 1) {
+          sizes.update(0, childSizes(childSizes.length - 1))
+          node.update(length - 1, sizes)
+        } else {
+          node.update(length - 1, childSizes)
+        }
       } else {
-        while (i < end) {
+        while (i < length) {
           acc += treeSize(node(i).asInstanceOf[Node], currentDepth - 1)
           sizes.update(i, acc)
           i += 1
         }
-        node.update(end - 1, sizes)
+        node.update(length - 1, sizes)
       }
-      //if (notBalanced(node, sizes, currentDepth, end))
     }
     node
   }
@@ -1599,36 +1584,32 @@ private[Immutable] trait VectorPointer[A]{
   final private def withRecomputedSizes(node: Node,
                                         currentDepth: Int,
                                         branchToUpdate: Int): Node = {
-    val end: Int = node.length - 1
-    val oldSizes: Size = node(end).asInstanceOf[Size]
-
-    if (oldSizes != null) {
-      val newSizes: Size = new Size(end)
-      val delta: Int =
-        if (currentDepth == 1)
-          node(branchToUpdate).asInstanceOf[Leaf].length
-        else
-          treeSize(node(branchToUpdate).asInstanceOf[Node], currentDepth - 1)
-
-      if (branchToUpdate > 0)
-        System.arraycopy(oldSizes, 0, newSizes, 0, branchToUpdate)
-
-      var i: Int = branchToUpdate
-      while (i < end) {
-        newSizes.update(i, oldSizes(i) + delta)
-        i += 1
-      }
-
-      if (!isBalanced(node, newSizes, currentDepth))
-        node.update(end, newSizes)
+    val endIndex: Int = node.length - 1
+    val oldSizes: Size = node(endIndex).asInstanceOf[Size]
+    val newSizes: Size = new Size(node.length)
+    val delta: Int = {
+      if (currentDepth == 1)
+        node(branchToUpdate).asInstanceOf[Leaf].length
+      else
+        treeSize(node(branchToUpdate).asInstanceOf[Node], currentDepth - 1)
     }
+
+    if (branchToUpdate > 0) System.arraycopy(oldSizes, 0, newSizes, 0, branchToUpdate)
+    var i: Int = branchToUpdate
+    while (i < endIndex) {
+      newSizes.update(i, oldSizes(i) + delta)
+      i += 1
+    }
+    node.update(endIndex, newSizes)
+
     node
   }
 
-  @inline final private def isBalanced(node: Node, // TODO Need to fix!!! and the definition of "end" in the whole file
+  @inline final private def isBalanced(node: Node,
                                        sizes: Size,
                                        currentDepth: Int): Boolean = {
-    if (node.length == 1) false else sizes(node.length - 1) == (node.length << (5 * currentDepth))
+    // Either root is of length one or in all except for the last location the subtrees are full
+    if (node.length == 1) false else sizes(node.length - 2) == ((node.length - 1) << (5 * currentDepth))
   }
 
   private def treeSize(tree: Node, currentDepth: Int): Int = {
@@ -1640,7 +1621,8 @@ private[Immutable] trait VectorPointer[A]{
       } else {
         treeSizeRec(node(length - 2).asInstanceOf[Node], currentDepth - 1, acc + treeSizes(treeSizes.length - 1))
       }
-      }
+    }
+
     treeSizeRec(tree, currentDepth, 0)
   }
 
