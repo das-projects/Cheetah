@@ -1462,7 +1462,7 @@ private[Immutable] trait VectorPointer[A] {
                                  currentDepth: Int): Node = {
     val dSize: Int = treeSize(node, currentDepth)
     val newRootSizes: Size = new Size(2)
-    newRootSizes.update(0, dSize)
+    newRootSizes.update(1, dSize)
     val newRoot: Node = new Node(3)
     newRoot.update(1, node)
     newRoot.update(2, newRootSizes)
@@ -1495,14 +1495,13 @@ private[Immutable] trait VectorPointer[A] {
     val newRoot: Node = copyOf(node, length, length + 1)
     val oldSizes: Size = node(length - 1).asInstanceOf[Size]
     if (oldSizes != null) {
-      //val newSizes: Size = new Size(length)
-      val newSizes: Size = new Size(length + 1)
-      System.arraycopy(oldSizes, 0, newSizes, 0, length)
+      val newSizes: Size = new Size(length)
+      System.arraycopy(oldSizes, 0, newSizes, 0, length - 1)
       if (transient)
-        //newSizes.update(length - 1, 1 << (5 * currentLevel))
-        newSizes.update(length, 1 << (5 * currentLevel))
-      //newSizes.update(length - 1, newSizes(length - 2))
-      newSizes.update(length, newSizes(length - 1))
+        newSizes.update(length - 1, 1 << (5 * currentLevel))
+      // At position length - 1 since the last position
+      // needs to be empty for the last element of the node
+      newSizes.update(length - 1, newSizes(length - 2))
       newRoot.update(length, newSizes)
     }
     newRoot
@@ -1518,24 +1517,20 @@ private[Immutable] trait VectorPointer[A] {
     System.arraycopy(node, 0, newRoot, 1, length)
 
     val oldSizes: Size = node(length - 1).asInstanceOf[Size]
-    //val newSizes: Size = new Size(length)
-    val newSizes: Size = new Size(length + 1)
+    val newSizes: Size = new Size(length)
 
     if (oldSizes != null) {
       if (transient) {
-        //System.arraycopy(oldSizes, 1, newSizes, 2, length - 2)
-        System.arraycopy(oldSizes, 1, newSizes, 2, length - 1)
+        System.arraycopy(oldSizes, 1, newSizes, 2, length - 2)
       }
       else {
-        //System.arraycopy(oldSizes, 0, newSizes, 1, length - 1)
-        System.arraycopy(oldSizes, 0, newSizes, 1, length)
+        System.arraycopy(oldSizes, 0, newSizes, 1, length - 1)
       }
     } else {
       val subTreeSize: Int = 1 << (5 * currentLevel)
       var acc = 0
       var i = 1
-      //while (i < length - 1) {
-      while (i < length) {
+      while (i < length - 1) {
         acc += subTreeSize
         newSizes.update(i, acc)
         i += 1
@@ -1608,11 +1603,11 @@ private[Immutable] trait VectorPointer[A] {
   @inline final private def isBalanced(node: Node,
                                        sizes: Size,
                                        currentDepth: Int): Boolean = {
-    // Either root is of length one or in all except for the last location the subtrees are full
+    // Either root is of length one or in all except for the last location, the subtrees are full
     if (node.length == 1) false else sizes(node.length - 2) == ((node.length - 1) << (5 * currentDepth))
   }
 
-  private def treeSize(tree: Node, currentDepth: Int): Int = {
+  final private def treeSize(tree: Node, currentDepth: Int): Int = {
     @tailrec def treeSizeRec(node: Node, currentDepth: Int, acc: Int): Int = {
       val length: Int = node.length
       val treeSizes: Size = node(length - 1).asInstanceOf[Size]
@@ -1622,7 +1617,6 @@ private[Immutable] trait VectorPointer[A] {
         treeSizeRec(node(length - 2).asInstanceOf[Node], currentDepth - 1, acc + treeSizes(treeSizes.length - 1))
       }
     }
-
     treeSizeRec(tree, currentDepth, 0)
   }
 
@@ -1647,7 +1641,8 @@ private[Immutable] trait VectorPointer[A] {
       throw new IllegalArgumentException(xor.toString)
   }
 
-  final private def getElem0(block: Leaf, index: Int): A = block(index & 31)
+  final private def getElem0(block: Leaf, index: Int): A =
+    block(index & 31)
 
   final private def getElem1(block: Node, index: Int): A =
     block(index >> 5 & 31)
