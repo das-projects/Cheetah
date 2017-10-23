@@ -3106,77 +3106,74 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     vector
   }
 
-  private def dropFront0(n: Int): Vector[A] = {
+  private def dropFront0(n: Int): Vector[A] = { // Need to fix, since depth = 1 means there is still a node
 
     if (transient) {
       normalize(depth)
       transient = false
     }
+    val vector: Vector[A] = new Vector[A](this.endIndex - n)
+    vector.initWithFocusFrom(this)
 
-    val vec: Vector[A] = new Vector[A](this.endIndex - n)
-
-    vec.initWithFocusFrom(this)
-
-    if (vec.depth > 1) {
-      vec.focusOn(n)
-      val cutIndex: Int = vec.focus | vec.focusRelax
+    if (vector.depth >= 1) { // vector.depth > 1
+      vector.focusOn(n)
+      val cutIndex: Int = vector.focus | vector.focusRelax
       val d0Start: Int = cutIndex & 31
       if (d0Start != 0) {
-        val d0len: Int = vec.display0.length - d0Start
-        val d0: Leaf = new Leaf(d0len)
-        System.arraycopy(vec.display0, d0Start, d0, 0, d0len)
-        vec.display0 = d0
+        val d0length: Int = vector.display0.length - d0Start
+        val d0: Leaf = new Leaf(d0length)
+        System.arraycopy(vector.display0, d0Start, d0, 0, d0length)
+        vector.display0 = d0
       }
 
-      vec.cleanTopDrop(cutIndex)
+      vector.cleanTopDrop(cutIndex)
 
-      if (vec.depth > 1) {
-        var i = 2
-        var display = vec.display1
-        while (i <= vec.depth) {
+      if (vector.depth >= 1) { // vector.depth > 1
+        var i: Int = 2
+        var display: Node = vector.display1
+        while (i <= vector.depth) {
           val splitStart = cutIndex >> 5 * (i - 1) & 31
           val newLen = display.length - splitStart - 1
           val newDisplay = new Node(newLen + 1)
           System.arraycopy(display, splitStart + 1, newDisplay, 1, newLen - 1)
           i match {
             case 2 =>
-              newDisplay.update(0, vec.display0)
-              vec.display1 = withComputedSizes(newDisplay, 2)
-              display = vec.display2
+              newDisplay.update(0, vector.display0)
+              vector.display1 = withComputedSizes(newDisplay, 2)
+              display = vector.display2
             case 3 =>
-              newDisplay.update(0, vec.display1)
-              vec.display2 = withComputedSizes(newDisplay, 3)
-              display = vec.display3
+              newDisplay.update(0, vector.display1)
+              vector.display2 = withComputedSizes(newDisplay, 3)
+              display = vector.display3
             case 4 =>
-              newDisplay.update(0, vec.display2)
-              vec.display3 = withComputedSizes(newDisplay, 4)
-              display = vec.display4
+              newDisplay.update(0, vector.display2)
+              vector.display3 = withComputedSizes(newDisplay, 4)
+              display = vector.display4
             case 5 =>
-              newDisplay.update(0, vec.display3)
-              vec.display4 = withComputedSizes(newDisplay, 5)
-              display = vec.display5
+              newDisplay.update(0, vector.display3)
+              vector.display4 = withComputedSizes(newDisplay, 5)
+              display = vector.display5
             case 6 =>
-              newDisplay.update(0, vec.display4)
-              vec.display5 = withComputedSizes(newDisplay, 6)
-              display = vec.display6
+              newDisplay.update(0, vector.display4)
+              vector.display5 = withComputedSizes(newDisplay, 6)
+              display = vector.display6
             case 7 =>
-              newDisplay.update(0, vec.display5)
-              vec.display6 = withComputedSizes(newDisplay, 7)
+              newDisplay.update(0, vector.display5)
+              vector.display6 = withComputedSizes(newDisplay, 7)
           }
           i += 1
         }
       }
 
-      vec.initFocus(0, 0, vec.display0.length, 1, 0)
+      vector.initFocus(0, 0, vector.display0.length, 1, 0)
     } else {
-
-      val newLen = vec.display0.length - n
-      val d0 = new Leaf(newLen)
-      System.arraycopy(vec.display0, n, d0, 0, newLen)
-      vec.display0 = d0
-      vec.initFocus(0, 0, newLen, 1, 0)
+      val newLen: Int = vector.display0.length - n
+      val d0: Leaf = new Leaf(newLen)
+      System.arraycopy(vector.display0, n, d0, 0, newLen)
+      vector.display0 = d0
+      vector.initFocus(0, 0, newLen, 1, 0)
     }
-    vec
+    vector
   }
 
   private[Immutable] final def assertVectorInvariant(): Unit = { // TODO Need to update to to my design of the data structure

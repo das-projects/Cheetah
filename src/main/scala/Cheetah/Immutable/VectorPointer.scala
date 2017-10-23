@@ -1266,8 +1266,9 @@ private[Immutable] trait VectorPointer[A] {
         if ((cutIndex >> 5) == (display1.length - 2)) {
           display1 = null
           this.depth = 0
-        } else
+        } else {
           this.depth = 1
+        }
 
       case 2 =>
         if ((cutIndex >> 10) == (display2.length - 2)) {
@@ -1397,25 +1398,25 @@ private[Immutable] trait VectorPointer[A] {
     }
   }
 
-  final private[Immutable] def copyOf(array: Node): Node = {
-    val length: Int = array.length
+  final private[Immutable] def copyOf(node: Node): Node = {
+    val length: Int = node.length
     val newArray: Node = new Node(length)
-    System.arraycopy(array, 0, newArray, 0, length)
+    System.arraycopy(node, 0, newArray, 0, length)
     newArray
   }
 
-  final private[Immutable] def copyOf(array: Node,
+  final private[Immutable] def copyOf(node: Node,
                                       numElements: Int,
                                       newSize: Int): Node = {
     val newArray: Node = new Node(newSize)
-    System.arraycopy(array, 0, newArray, 0, numElements)
+    System.arraycopy(node, 0, newArray, 0, numElements)
     newArray
   }
 
-  final private[Immutable] def copyOf(array: Leaf)(implicit ct: ClassTag[A]): Leaf = {
-    val length: Int = array.length
+  final private[Immutable] def copyOf(leaf: Leaf)(implicit ct: ClassTag[A]): Leaf = {
+    val length: Int = leaf.length
     val newArray: Leaf = new Leaf(length)
-    System.arraycopy(array, 0, newArray, 0, length)
+    System.arraycopy(leaf, 0, newArray, 0, length)
     newArray
   }
 
@@ -1427,30 +1428,28 @@ private[Immutable] trait VectorPointer[A] {
     newArray
   }
 
-  final private[Immutable] def copyOfAndNull(array: Node,
+  final private[Immutable] def copyOfAndNull(node: Node,
                                              nullIndex: Int): Node = {
-    val length: Int = array.length
-    val newArray: Node = new Node(length)
-    //System.arraycopy(array, 0, newArray, 0, length - 1)
-    System.arraycopy(array, 0, newArray, 0, length)
+    val length: Int = node.length
+    val newNode: Node = new Node(length)
+    // length - 1 since the last location has the sizes array
+    System.arraycopy(node, 0, newNode, 0, length - 1)
+    newNode.update(nullIndex, null)
 
-    newArray.update(nullIndex, null)
-    val sizes: Size = array(length - 1).asInstanceOf[Size]
+    val sizes: Size = node(length - 1).asInstanceOf[Size]
     if (sizes != null)
-      newArray.update(length - 1, makeTransientSizes(sizes, nullIndex))
-    newArray
+      newNode.update(length - 1, makeTransientSizes(sizes, nullIndex))
+    newNode
   }
 
   final private def makeNewRoot0(node: Node): Node = {
     val newRoot: Node = new Node(3)
     newRoot.update(0, node)
-
-    val length: Int = node.length
-    val dSizes: Size = node(length - 1).asInstanceOf[Size]
+    val dSizes: Size = node(node.length - 1).asInstanceOf[Size]
 
     if (dSizes != null) {
       val newRootSizes: Size = new Size(2)
-      val dSize: Int = dSizes(length - 2)
+      val dSize: Int = dSizes(node.length - 2)
       newRootSizes.update(0, dSize)
       newRootSizes.update(1, dSize)
       newRoot.update(2, newRootSizes)
@@ -1460,7 +1459,7 @@ private[Immutable] trait VectorPointer[A] {
 
   final private def makeNewRoot1(node: Node,
                                  currentDepth: Int): Node = {
-    val dSize: Int = treeSize(node, currentDepth)
+    val dSize: Int = treeSize(node, currentDepth - 1)
     val newRootSizes: Size = new Size(2)
     newRootSizes.update(1, dSize)
     val newRoot: Node = new Node(3)
@@ -1491,8 +1490,8 @@ private[Immutable] trait VectorPointer[A] {
                                         transient: Boolean,
                                         currentLevel: Int): Node = {
     val length: Int = node.length
-    //val newRoot: Node = copyOf(node, length - 1, length + 1)
-    val newRoot: Node = copyOf(node, length, length + 1)
+    // length - 1 since the last position of node has the sizes array
+    val newRoot: Node = copyOf(node, length - 1, length + 1)
     val oldSizes: Size = node(length - 1).asInstanceOf[Size]
     if (oldSizes != null) {
       val newSizes: Size = new Size(length)
@@ -1513,8 +1512,7 @@ private[Immutable] trait VectorPointer[A] {
     val length: Int = node.length
     val newRoot: Node = new Node(length + 1)
     // Copy existing contents to the new array, but shifted by one to the left
-    //System.arraycopy(node, 0, newRoot, 1, length - 1)
-    System.arraycopy(node, 0, newRoot, 1, length)
+    System.arraycopy(node, 0, newRoot, 1, length - 1)
 
     val oldSizes: Size = node(length - 1).asInstanceOf[Size]
     val newSizes: Size = new Size(length)
