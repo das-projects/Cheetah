@@ -16,29 +16,31 @@ import scala.{Vector => ScalaVector}
 
 object Vector {
 
-  def newBuilder[A : ClassTag]: VectorBuilder[A] = new VectorBuilder[A]()
+  def newBuilder[A: ClassTag]: VectorBuilder[A] = new VectorBuilder[A]()
 
   /** The generic builder that builds instances of $Coll
     * at arbitrary element types.
     */
-  def genericBuilder[B : ClassTag]: VectorBuilder[B] = new VectorBuilder[B]()
+  def genericBuilder[B: ClassTag]: VectorBuilder[B] = new VectorBuilder[B]()
 
-  implicit def canBuildFrom[A : ClassTag]: CanBuildFrom[Vector[_], A, Vector[A]] =
+  implicit def canBuildFrom[A: ClassTag]: CanBuildFrom[Vector[_], A, Vector[A]] =
     new CanBuildFrom[Vector[_], A, Vector[A]] {
       def apply: VectorBuilder[A] = new VectorBuilder[A]()
 
       override def apply(from: Vector[_]): VectorBuilder[A] = new VectorBuilder[A]()
     }
+
   @inline private[Immutable] final val compileAssertions = false
 
-  def empty[A : ClassTag]: Vector[A] = new Vector[A](0)
+  def empty[A: ClassTag]: Vector[A] = new Vector[A](0)
 
   final lazy private[Immutable] val emptyTransientBlock: Array[AnyRef] = new Array[AnyRef](2)
 }
 
 final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   extends VectorPointer[A@uncheckedVariance]
-    with Serializable { self =>
+    with Serializable {
+  self =>
 
   private[Immutable] var transient: Boolean = false
 
@@ -269,7 +271,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a new Vector resulting from applying the given function
     *         `f` to each element of this Vector and collecting the results in reversed order.
     */
-  def reverseMap[B : ClassTag](f: A => B): Vector[B] = {
+  def reverseMap[B: ClassTag](f: A => B): Vector[B] = {
     val reverse: VectorReverseIterator[A] = reverseiterator(0, endIndex)
     val build: VectorBuilder[B] = genericBuilder[B]
     while (reverse.hasNext) build += f(reverse.next())
@@ -855,7 +857,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a pair of ${coll}s, containing the first, respectively second
     *         half of each element pair of this $coll.
     */
-  def unzip[A1 : ClassTag, A2 : ClassTag](implicit asPair: A => (A1, A2)): (Vector[A1], Vector[A2]) = {
+  def unzip[A1: ClassTag, A2: ClassTag](implicit asPair: A => (A1, A2)): (Vector[A1], Vector[A2]) = {
     val build1: VectorBuilder[A1] = genericBuilder[A1]
     val build2: VectorBuilder[A2] = genericBuilder[A2]
     this.foreach(xy => {
@@ -887,7 +889,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a triple of ${coll}s, containing the first, second, respectively
     *         third member of each element triple of this $coll.
     */
-  def unzip3[A1 : ClassTag, A2 : ClassTag, A3 : ClassTag](implicit asTriple: A => (A1, A2, A3)): (Vector[A1], Vector[A2], Vector[A3]) = {
+  def unzip3[A1: ClassTag, A2: ClassTag, A3: ClassTag](implicit asTriple: A => (A1, A2, A3)): (Vector[A1], Vector[A2], Vector[A3]) = {
     val build1: VectorBuilder[A1] = genericBuilder[A1]
     val build2: VectorBuilder[A2] = genericBuilder[A2]
     val build3: VectorBuilder[A3] = genericBuilder[A3]
@@ -927,7 +929,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *    // ys == Set(1, 2, 3)
     *    }}}
     */
-  def flatten[B : ClassTag](implicit asVector: A => Vector[B]): Vector[B] = {
+  def flatten[B: ClassTag](implicit asVector: A => Vector[B]): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     this.foreach(xs => build ++= asVector(xs))
     build.result()
@@ -1115,7 +1117,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @param op the binary operator applied to the intermediate result and the element
     * @return collection with intermediate results
     */
-  def scanLeft[B : ClassTag](z: B)(op: (B, A) => B): Vector[B] = {
+  def scanLeft[B: ClassTag](z: B)(op: (B, A) => B): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     val forward: VectorIterator[A] = this.iterator
     var acc: B = z
@@ -1142,7 +1144,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @param op the binary operator applied to the intermediate result and the element
     * @return collection with intermediate results
     */
-  def scanRight[B : ClassTag](z: B)(op: (A, B) => B): Vector[B] = {
+  def scanRight[B: ClassTag](z: B)(op: (A, B) => B): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     val backward: VectorReverseIterator[A] = this.reverseiterator
     var acc: B = z
@@ -1164,7 +1166,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return a new $coll resulting from applying the given function
     *         `f` to each element of this $coll and collecting the results.
     */
-  def hashedmap[B : ClassTag](f: A => B): Vector[B] = {
+  def hashedmap[B: ClassTag](f: A => B): Vector[B] = {
     val value: mutable.HashMap[A, B] = new mutable.HashMap[A, B] {
       override def default(k: A): B = empty.asInstanceOf[B]
     }
@@ -1174,14 +1176,14 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
       // TODO HashedMap map: Check if it actually helps,
       // or memory is a problem, if so we could use a zero-allocation hashing algorithm
       val x: A = forward.next()
-      if(value(x) == null) value(x) = f(x)
+      if (value(x) == null) value(x) = f(x)
       build += value(x)
     }
     build.result()
   }
 
 
-  def map[B : ClassTag](f: A => B): Vector[B] = {
+  def map[B: ClassTag](f: A => B): Vector[B] = {
     val build: VectorBuilder[B] = genericBuilder[B]
     val forward: VectorIterator[A] = this.iterator
     while (forward.hasNext) build += f(forward.next())
@@ -1256,7 +1258,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     build.result()
   }
 
-  def hashedflatMap[B : ClassTag](f: A => Vector[B]): Vector[B] = {
+  def hashedflatMap[B: ClassTag](f: A => Vector[B]): Vector[B] = {
     val value: mutable.HashMap[A, Vector[B]] = new mutable.HashMap[A, Vector[B]] {
       override def default(k: A): Vector[B] = empty.asInstanceOf[Vector[B]]
     }
@@ -1266,7 +1268,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
       // TODO HashedflatMap map: Check if it actually helps,
       // or memory is a problem, if so we could use a zero-allocation hashing algorithm
       val x: A = forward.next()
-      if(value(x) == null) value(x) = f(x)
+      if (value(x) == null) value(x) = f(x)
       build ++= value(x)
     }
     build.result()
@@ -1347,13 +1349,13 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @tparam K the type of keys returned by the discriminator function.
     * @return A map from keys to ${coll}s such that the following invariant holds:
     *         {{{
-    *                                            (xs groupBy f)(k) = xs filter (x => f(x) == k)
+    *                                                     (xs groupBy f)(k) = xs filter (x => f(x) == k)
     *         }}}
     *         That is, every key `k` is bound to a $coll of those elements `x`
     *         for which `f(x)` equals `k`.
     *
     */
-  def groupBy[B >: A : ClassTag, K] (f: B => K): mutable.Map[K, Vector[B]] = {
+  def groupBy[B >: A : ClassTag, K](f: B => K): mutable.Map[K, Vector[B]] = {
     val group: mutable.HashMap[K, Vector[B]] = new mutable.HashMap[K, Vector[B]] {
       override def default(k: K) = new Vector[B](0)
     }
@@ -1606,7 +1608,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return the result of inserting `op` between consecutive elements of this $coll,
     *         going left to right with the start value `z` on the left:
     *         {{{
-    *                                        op(...op(op(z, x_1), x_2), ..., x_n)
+    *                                                 op(...op(op(z, x_1), x_2), ..., x_n)
     *         }}}
     *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
     */
@@ -1643,7 +1645,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return the result of inserting `op` between consecutive elements of this $coll,
     *         going right to left with the start value `z` on the right:
     *         {{{
-    *                                        op(x_1, op(x_2, ... op(x_n, z)...))
+    *                                                 op(x_1, op(x_2, ... op(x_n, z)...))
     *         }}}
     *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
     */
@@ -1664,7 +1666,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return the result of inserting `op` between consecutive elements of this $coll,
     *         going left to right with the start value `z` on the left:
     *         {{{
-    *                                        op(...op(z, x_1), x_2, ..., x_n)
+    *                                                 op(...op(z, x_1), x_2, ..., x_n)
     *         }}}
     *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
     *         Returns `z` if this $coll is empty.
@@ -1688,7 +1690,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return the result of inserting `op` between consecutive elements of this $coll,
     *         going right to left with the start value `z` on the right:
     *         {{{
-    *                                        op(x_1, op(x_2, ... op(x_n, z)...))
+    *                                                 op(x_1, op(x_2, ... op(x_n, z)...))
     *         }}}
     *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
     *         Returns `z` if this $coll is empty.
@@ -1734,10 +1736,10 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     var acc: B = z
     this.split.foreach(x =>
       acc = combop({
-      var acc: B = z
-      while(x.hasNext) acc = seqop(acc, x.next())
-      acc
-      } , acc))
+        var acc: B = z
+        while (x.hasNext) acc = seqop(acc, x.next())
+        acc
+      }, acc))
     acc
   }
 
@@ -1772,7 +1774,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return the result of inserting `op` between consecutive elements of this $coll,
     *         going right to left:
     *         {{{
-    *                                        op(x_1, op(x_2, ..., op(x_{n-1}, x_n)...))
+    *                                                 op(x_1, op(x_2, ..., op(x_{n-1}, x_n)...))
     *         }}}
     *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
     * @throws UnsupportedOperationException if this $coll is empty.
@@ -1795,7 +1797,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         `None` otherwise.
     */
   def reduceRightOption[B >: A](op: (A, B) => B): Option[B] = {
-    if(this.isEmpty) None
+    if (this.isEmpty) None
     else {
       val reverse: VectorReverseIterator[A] = this.reverseiterator
       var acc: B = reverse.next()
@@ -1813,7 +1815,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * @return the result of inserting `op` between consecutive elements of this $coll,
     *         going right to left:
     *         {{{
-    *                                        op(x_1, op(x_2, ..., op(x_{n-1}, x_n)...))
+    *                                                 op(x_1, op(x_2, ..., op(x_{n-1}, x_n)...))
     *         }}}
     *         where `x,,1,,, ..., x,,n,,` are the elements of this $coll.
     * @throws UnsupportedOperationException if this $coll is empty.
@@ -1835,7 +1837,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *         `None` otherwise.
     */
   def reduceLeftOption[B >: A](op: (B, A) => B): Option[B] = {
-    if(this.isEmpty) None
+    if (this.isEmpty) None
     else {
       val forward: VectorIterator[A] = this.iterator
       var acc: B = forward.next()
@@ -1916,7 +1918,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   def copyToArray[B >: A](xs: Array[B]): Unit = {
     val forward: VectorIterator[A] = this.iterator
     var index: Int = 0
-    while(forward.hasNext) {
+    while (forward.hasNext) {
       xs(index) = forward.next()
       index += 1
     }
@@ -1938,7 +1940,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   def copyToArray[B >: A](xs: Array[B], start: Int): Unit = {
     val forward: VectorIterator[A] = this.iterator(start, this.endIndex)
     var index: Int = 0
-    while(forward.hasNext) {
+    while (forward.hasNext) {
       xs(index) = forward.next()
       index += 1
     }
@@ -1962,52 +1964,50 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   def copyToArray[B >: A](xs: Array[B], start: Int, len: Int): Unit = {
     val forward: VectorIterator[A] = this.iterator(start, spire.math.min(start + len, this.endIndex))
     var index: Int = 0
-    while(forward.hasNext) {
+    while (forward.hasNext) {
       xs(index) = forward.next()
       index += 1
     }
   }
 
   /** Displays all elements of this $coll in a string using start, end, and
-    *  separator strings.
+    * separator strings.
     *
-    *  @param start the starting string.
-    *  @param sep   the separator string.
-    *  @param end   the ending string.
-    *  @return      a string representation of this $coll. The resulting string
-    *               begins with the string `start` and ends with the string
-    *               `end`. Inside, the string representations (w.r.t. the method
-    *               `toString`) of all elements of this $coll are separated by
-    *               the string `sep`.
-    *
-    *  @example  `List(1, 2, 3).mkString("(", "; ", ")") = "(1; 2; 3)"`
+    * @param start the starting string.
+    * @param sep   the separator string.
+    * @param end   the ending string.
+    * @return a string representation of this $coll. The resulting string
+    *         begins with the string `start` and ends with the string
+    *         `end`. Inside, the string representations (w.r.t. the method
+    *         `toString`) of all elements of this $coll are separated by
+    *         the string `sep`.
+    * @example `List(1, 2, 3).mkString("(", "; ", ")") = "(1; 2; 3)"`
     */
   def mkString(start: String, sep: String, end: String): String = addString(new StringBuilder(), start, sep, end).toString
 
   /** Displays all elements of this $coll in a string using a separator string.
     *
-    *  @param sep   the separator string.
-    *  @return      a string representation of this $coll. In the resulting string
-    *               the string representations (w.r.t. the method `toString`)
-    *               of all elements of this $coll are separated by the string `sep`.
-    *
-    *  @example  `List(1, 2, 3).mkString("|") = "1|2|3"`
+    * @param sep the separator string.
+    * @return a string representation of this $coll. In the resulting string
+    *         the string representations (w.r.t. the method `toString`)
+    *         of all elements of this $coll are separated by the string `sep`.
+    * @example `List(1, 2, 3).mkString("|") = "1|2|3"`
     */
-  def mkString(sep: String): String  = mkString("", sep, "")
+  def mkString(sep: String): String = mkString("", sep, "")
 
   /** Displays all elements of this $coll in a string.
     *
-    *  @return a string representation of this $coll. In the resulting string
-    *          the string representations (w.r.t. the method `toString`)
-    *          of all elements of this $coll follow each other without any
-    *          separator string.
+    * @return a string representation of this $coll. In the resulting string
+    *         the string representations (w.r.t. the method `toString`)
+    *         of all elements of this $coll follow each other without any
+    *         separator string.
     */
   def mkString: String = mkString("")
 
   /** Appends all elements of this $coll to a string builder using start, end, and separator strings.
-    *  The written text begins with the string `start` and ends with the string `end`.
-    *  Inside, the string representations (w.r.t. the method `toString`)
-    *  of all elements of this $coll are separated by the string `sep`.
+    * The written text begins with the string `start` and ends with the string `end`.
+    * Inside, the string representations (w.r.t. the method `toString`)
+    * of all elements of this $coll are separated by the string `sep`.
     *
     * Example:
     *
@@ -2022,11 +2022,11 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *      res5: StringBuilder = List(1, 2, 3, 4)
     * }}}
     *
-    *  @param  b    the string builder to which elements are appended.
-    *  @param start the starting string.
-    *  @param sep   the separator string.
-    *  @param end   the ending string.
-    *  @return      the string builder `b` to which elements were appended.
+    * @param  b    the string builder to which elements are appended.
+    * @param start the starting string.
+    * @param sep   the separator string.
+    * @param end   the ending string.
+    * @return the string builder `b` to which elements were appended.
     */
   def addString(b: StringBuilder, start: String, sep: String, end: String): StringBuilder = {
     var first = true
@@ -2048,8 +2048,8 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
   }
 
   /** Appends all elements of this $coll to a string builder using a separator string.
-    *  The written text consists of the string representations (w.r.t. the method `toString`)
-    *  of all elements of this $coll, separated by the string `sep`.
+    * The written text consists of the string representations (w.r.t. the method `toString`)
+    * of all elements of this $coll, separated by the string `sep`.
     *
     * Example:
     *
@@ -2064,14 +2064,14 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *      res0: StringBuilder = 1, 2, 3, 4
     * }}}
     *
-    *  @param  b    the string builder to which elements are appended.
-    *  @param sep   the separator string.
-    *  @return      the string builder `b` to which elements were appended.
+    * @param  b  the string builder to which elements are appended.
+    * @param sep the separator string.
+    * @return the string builder `b` to which elements were appended.
     */
   def addString(b: StringBuilder, sep: String): StringBuilder = addString(b, "", sep, "")
 
   /** Appends all elements of this $coll to a string builder.
-    *  The written text consists of the string representations (w.r.t. the method
+    * The written text consists of the string representations (w.r.t. the method
     * `toString`) of all elements of this $coll without any separator string.
     *
     * Example:
@@ -2086,16 +2086,16 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     *      scala> val h = a.addString(b)
     *      h: StringBuilder = 1234
     * }}}
-
-    *  @param  b    the string builder to which elements are appended.
-    *  @return      the string builder `b` to which elements were appended.
+    *
+    * @param  b the string builder to which elements are appended.
+    * @return the string builder `b` to which elements were appended.
     */
   def addString(b: StringBuilder): StringBuilder = addString(b, "")
 
   /** Converts this $coll to an array.
     *
     * @tparam B the type of the elements of the array. An `ClassTag` for
-    *            this type must be available.
+    *           this type must be available.
     * @return an array containing all elements of this $coll.
     * @usecase def toArray: Array[A]
     * @inheritdoc
@@ -2223,7 +2223,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     * $willNotTerminateInf
     * @return a new collection containing all elements of this $coll.
     */
-  def to[Col[_]](implicit cbf: CanBuildFrom[Col[_], A, Col[A @uncheckedVariance]]): Col[A @uncheckedVariance] = {
+  def to[Col[_]](implicit cbf: CanBuildFrom[Col[_], A, Col[A@uncheckedVariance]]): Col[A@uncheckedVariance] = {
     val build: mutable.Builder[A, Col[A]] = cbf()
     build ++= this.asInstanceOf[TraversableOnce[A]]
     build.result()
@@ -3114,65 +3114,68 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
     }
     val vector: Vector[A] = new Vector[A](this.endIndex - n)
     vector.initWithFocusFrom(this)
-
-    if (vector.depth >= 1) { // vector.depth > 1
-      vector.focusOn(n)
-      val cutIndex: Int = vector.focus | vector.focusRelax
-      val d0Start: Int = cutIndex & 31
-      if (d0Start != 0) {
-        val d0length: Int = vector.display0.length - d0Start
-        val d0: Leaf = new Leaf(d0length)
-        System.arraycopy(vector.display0, d0Start, d0, 0, d0length)
-        vector.display0 = d0
-      }
-
-      vector.cleanTopDrop(cutIndex)
-
-      if (vector.depth >= 1) { // vector.depth > 1
-        var i: Int = 2
-        var display: Node = vector.display1
-        while (i <= vector.depth) {
-          val splitStart = cutIndex >> 5 * (i - 1) & 31
-          val newLen = display.length - splitStart - 1
-          val newDisplay = new Node(newLen + 1)
-          System.arraycopy(display, splitStart + 1, newDisplay, 1, newLen - 1)
-          i match {
-            case 2 =>
-              newDisplay.update(0, vector.display0)
-              vector.display1 = withComputedSizes(newDisplay, 2)
-              display = vector.display2
-            case 3 =>
-              newDisplay.update(0, vector.display1)
-              vector.display2 = withComputedSizes(newDisplay, 3)
-              display = vector.display3
-            case 4 =>
-              newDisplay.update(0, vector.display2)
-              vector.display3 = withComputedSizes(newDisplay, 4)
-              display = vector.display4
-            case 5 =>
-              newDisplay.update(0, vector.display3)
-              vector.display4 = withComputedSizes(newDisplay, 5)
-              display = vector.display5
-            case 6 =>
-              newDisplay.update(0, vector.display4)
-              vector.display5 = withComputedSizes(newDisplay, 6)
-              display = vector.display6
-            case 7 =>
-              newDisplay.update(0, vector.display5)
-              vector.display6 = withComputedSizes(newDisplay, 7)
-          }
-          i += 1
-        }
-      }
-
-      vector.initFocus(0, 0, vector.display0.length, 1, 0)
-    } else {
-      val newLen: Int = vector.display0.length - n
-      val d0: Leaf = new Leaf(newLen)
-      System.arraycopy(vector.display0, n, d0, 0, newLen)
+    //if (vector.depth >= 1) { // vector.depth > 1
+    vector.focusOn(n)
+    val cutIndex: Int = vector.focus | vector.focusRelax
+    val d0Start: Int = cutIndex & 31
+    if (d0Start != 0) {
+      val d0length: Int = vector.display0.length - d0Start
+      val d0: Leaf = new Leaf(d0length)
+      System.arraycopy(vector.display0, d0Start, d0, 0, d0length)
       vector.display0 = d0
-      vector.initFocus(0, 0, newLen, 1, 0)
     }
+
+    vector.cleanTopDrop(cutIndex)
+
+    //  if (vector.depth >= 1) { // vector.depth > 1
+    var i: Int = 2
+    var display: Node = vector.display1
+    while (i <= vector.depth) {
+      val splitStart: Int = cutIndex >> 5 * (i - 1) & 31
+      val newLen: Int = display.length - splitStart - 1
+      val newDisplay: Node = new Node(newLen + 1)
+      System.arraycopy(display, splitStart + 1, newDisplay, 1, newLen - 1)
+      i match {
+        case 2 =>
+          newDisplay.update(0, vector.display0)
+          vector.display1 = withComputedSizes(newDisplay, 2)
+          display = vector.display2
+        case 3 =>
+          newDisplay.update(0, vector.display1)
+          vector.display2 = withComputedSizes(newDisplay, 3)
+          display = vector.display3
+        case 4 =>
+          newDisplay.update(0, vector.display2)
+          vector.display3 = withComputedSizes(newDisplay, 4)
+          display = vector.display4
+        case 5 =>
+          newDisplay.update(0, vector.display3)
+          vector.display4 = withComputedSizes(newDisplay, 5)
+          display = vector.display5
+        case 6 =>
+          newDisplay.update(0, vector.display4)
+          vector.display5 = withComputedSizes(newDisplay, 6)
+          display = vector.display6
+        case 7 =>
+          newDisplay.update(0, vector.display5)
+          vector.display6 = withComputedSizes(newDisplay, 7)
+      }
+      i += 1
+    }
+    //    }
+
+    vector.initFocus(0, 0, vector.display0.length, 1, 0)
+    // }
+    //else
+
+    /*{
+        val newLen: Int = vector.display0.length - n
+        val d0: Leaf = new Leaf(newLen)
+        System.arraycopy(vector.display0, n, d0, 0, newLen)
+        vector.display0 = d0
+        vector.initFocus(0, 0, newLen, 1, 0)
+      }
+      */
     vector
   }
 
@@ -3283,6 +3286,7 @@ final class Vector[+A: ClassTag](override private[Immutable] val endIndex: Int)
           assert(transient)
         }
       }
+
       depth match {
         case 1 => checkSizes(display1, 1, endIndex)
         case 2 => checkSizes(display2, 2, endIndex)

@@ -1266,9 +1266,8 @@ private[Immutable] trait VectorPointer[A] {
         if ((cutIndex >> 5) == (display1.length - 2)) {
           display1 = null
           this.depth = 0
-        } else {
+        } else
           this.depth = 1
-        }
 
       case 2 =>
         if ((cutIndex >> 10) == (display2.length - 2)) {
@@ -1395,6 +1394,7 @@ private[Immutable] trait VectorPointer[A] {
             this.depth = 6
         } else
           this.depth = 7
+
     }
   }
 
